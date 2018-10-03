@@ -129,22 +129,15 @@ func (dpy *Display) CreateSeatGlobal(seat Seat) {
 
 type mockSurface struct{}
 
-func (mockSurface) Destroy(client *C.struct_wl_client) {}
-func (mockSurface) Attach(client *C.struct_wl_client, buffer Buffer, x, y int32) {
-}
-func (mockSurface) Damage(client *C.struct_wl_client, x, y, width, height int32) {
-}
-func (mockSurface) Frame(client *C.struct_wl_client, callback uint32) {
-}
-func (mockSurface) SetOpaqueRegion(client *C.struct_wl_client, region Region) {
-}
-func (mockSurface) SetInputRegion(client *C.struct_wl_client, region Region) {
-}
-func (mockSurface) Commit(client *C.struct_wl_client) {}
-func (mockSurface) SetBufferTransform(client *C.struct_wl_client, transform int32) {
-}
-func (mockSurface) SetBufferScale(client *C.struct_wl_client, scale int32) {
-}
+func (mockSurface) Destroy(client *C.struct_wl_client)                             {}
+func (mockSurface) Attach(client *C.struct_wl_client, buffer Buffer, x, y int32)   {}
+func (mockSurface) Damage(client *C.struct_wl_client, x, y, width, height int32)   {}
+func (mockSurface) Frame(client *C.struct_wl_client, callback uint32)              {}
+func (mockSurface) SetOpaqueRegion(client *C.struct_wl_client, region Region)      {}
+func (mockSurface) SetInputRegion(client *C.struct_wl_client, region Region)       {}
+func (mockSurface) Commit(client *C.struct_wl_client)                              {}
+func (mockSurface) SetBufferTransform(client *C.struct_wl_client, transform int32) {}
+func (mockSurface) SetBufferScale(client *C.struct_wl_client, scale int32)         {}
 
 type mockCompositor struct{}
 
@@ -166,31 +159,44 @@ func (mockShell) GetShellSurface(client *C.struct_wl_client, id ObjectID, surfac
 
 type mockXdgWmBase struct{}
 
-func (mockXdgWmBase) Destroy(client *C.struct_wl_client) {
-}
+func (mockXdgWmBase) Destroy(client *C.struct_wl_client) {}
 func (mockXdgWmBase) CreatePositioner(client *C.struct_wl_client, id ObjectID) XDGPositioner {
 	return nil
 }
 func (mockXdgWmBase) GetXDGSurface(client *C.struct_wl_client, id ObjectID, surface Surface) XDGSurface {
 	return mockXDGSurface{}
 }
-func (mockXdgWmBase) Pong(client *C.struct_wl_client, serial uint32) {
-}
+func (mockXdgWmBase) Pong(client *C.struct_wl_client, serial uint32) {}
 
 type mockXDGSurface struct{}
 
 func (mockXDGSurface) Destroy(client *C.struct_wl_client) {}
 func (mockXDGSurface) GetToplevel(client *C.struct_wl_client, id ObjectID) XDGToplevel {
-	return nil
+	return mockToplevel{}
 }
 func (mockXDGSurface) GetPopup(client *C.struct_wl_client, id ObjectID, parent *C.struct_wl_resource, positioner XDGPositioner) {
 }
-func (mockXDGSurface) SetWindowGeometry(client *C.struct_wl_client, x, y, width, height int32) {
-}
-func (mockXDGSurface) AckConfigure(client *C.struct_wl_client, serial uint32) {
-}
+func (mockXDGSurface) SetWindowGeometry(client *C.struct_wl_client, x, y, width, height int32) {}
+func (mockXDGSurface) AckConfigure(client *C.struct_wl_client, serial uint32)                  {}
 
 type mockSeat struct{}
+
+type mockToplevel struct{}
+
+func (mockToplevel) Destroy(client *C.struct_wl_client)                                              {}
+func (mockToplevel) SetParent(client *C.struct_wl_client, parent *C.struct_wl_resource)              {}
+func (mockToplevel) SetTitle(client *C.struct_wl_client, title string)                               {}
+func (mockToplevel) SetAppID(client *C.struct_wl_client, app_id string)                              {}
+func (mockToplevel) ShowWindowMenu(client *C.struct_wl_client, seat Seat, serial uint32, x, y int32) {}
+func (mockToplevel) Move(client *C.struct_wl_client, seat Seat, serial uint32)                       {}
+func (mockToplevel) Resize(client *C.struct_wl_client, seat Seat, serial uint32, edges uint32)       {}
+func (mockToplevel) SetMaxSize(client *C.struct_wl_client, width, height int32)                      {}
+func (mockToplevel) SetMinSize(client *C.struct_wl_client, width, height int32)                      {}
+func (mockToplevel) SetMaximized(client *C.struct_wl_client)                                         {}
+func (mockToplevel) UnsetMaximized(client *C.struct_wl_client)                                       {}
+func (mockToplevel) SetFullscreen(client *C.struct_wl_client, output *C.struct_wl_resource)          {}
+func (mockToplevel) UnsetFullscreen(client *C.struct_wl_client)                                      {}
+func (mockToplevel) SetMinimized(client *C.struct_wl_client)                                         {}
 
 func main() {
 	egl.Init()
