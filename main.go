@@ -110,7 +110,7 @@ var (
 
 func (dpy *Display) CreateCompositorGlobal(comp Compositor) {
 	data := addGlobal(comp)
-	C.wl_global_create(dpy.dpy, &C.wl_compositor_interface, 3, unsafe.Pointer(data), (*[0]byte)(C.wayfarerCompositorBind))
+	C.wl_global_create(dpy.dpy, &C.wl_compositor_interface, 1, unsafe.Pointer(data), (*[0]byte)(C.wayfarerCompositorBind))
 }
 
 func (dpy *Display) CreateShellGlobal(shell Shell) {
@@ -125,12 +125,17 @@ func (dpy *Display) CreateXdgWmBaseGlobal(shell XdgWmBase) {
 
 func (dpy *Display) CreateSeatGlobal(seat Seat) {
 	data := addGlobal(seat)
-	C.wl_global_create(dpy.dpy, &C.wl_seat_interface, 1, unsafe.Pointer(data), (*[0]byte)(C.wayfarerSeatBind))
+	C.wl_global_create(dpy.dpy, &C.wl_seat_interface, 5, unsafe.Pointer(data), (*[0]byte)(C.wayfarerSeatBind))
+}
+
+func (dpy *Display) CreateDataDeviceManagerGlobal(ddm DataDeviceManager) {
+	data := addGlobal(ddm)
+	C.wl_global_create(dpy.dpy, &C.wl_data_device_manager_interface, 1, unsafe.Pointer(data), (*[0]byte)(C.wayfarerDataDeviceManagerBind))
 }
 
 func (dpy *Display) CreateOutputGlobal(output Output) {
 	data := addGlobal(output)
-	C.wl_global_create(dpy.dpy, &C.wl_output_interface, 1, unsafe.Pointer(data), (*[0]byte)(C.wayfarerOutputBind))
+	C.wl_global_create(dpy.dpy, &C.wl_output_interface, 2, unsafe.Pointer(data), (*[0]byte)(C.wayfarerOutputBind))
 }
 
 type mockSurface struct {
@@ -153,11 +158,12 @@ type mockCompositor struct {
 	shell  *mockShell
 	wmBase *mockXdgWmBase
 	seat   *mockSeat
+	ddm    *mockDataDeviceManager
 
 	outputs []*mockOutput
 }
 
-func (*mockCompositor) Bind(client *Client, res *C.struct_wl_resource, version uint32) {}
+func (*mockCompositor) Bind(client *Client, version uint32) {}
 
 func (comp *mockCompositor) CreateSurface(client *Client, id ObjectID) Surface {
 	return &mockSurface{comp: comp}
@@ -172,7 +178,7 @@ type mockShell struct {
 	comp *mockCompositor
 }
 
-func (*mockShell) Bind(client *Client, res *C.struct_wl_resource, version uint32) {}
+func (*mockShell) Bind(client *Client, version uint32) {}
 
 func (*mockShell) GetShellSurface(client *Client, id ObjectID, surface Surface) {
 	fmt.Println("GetShellSurface")
@@ -182,8 +188,8 @@ type mockXdgWmBase struct {
 	comp *mockCompositor
 }
 
-func (*mockXdgWmBase) Bind(client *Client, res *C.struct_wl_resource, version uint32) {}
-func (*mockXdgWmBase) Destroy(client *Client)                                         {}
+func (*mockXdgWmBase) Bind(client *Client, version uint32) {}
+func (*mockXdgWmBase) Destroy(client *Client)              {}
 func (*mockXdgWmBase) CreatePositioner(client *Client, id ObjectID) XDGPositioner {
 	return nil
 }
@@ -213,7 +219,7 @@ type mockSeat struct {
 	comp *mockCompositor
 }
 
-func (*mockSeat) Bind(client *Client, res *C.struct_wl_resource, version uint32) {}
+func (*mockSeat) Bind(client *Client, version uint32) {}
 
 type mockToplevel struct {
 	surface *mockXDGSurface
@@ -238,9 +244,10 @@ func (*mockToplevel) SetMinimized(client *Client)                               
 type mockOutput struct {
 }
 
-func (*mockOutput) Bind(client *Client, res *C.struct_wl_resource, version uint32) {
+func (output *mockOutput) Bind(client *Client, version uint32) {
 	fmt.Println("bind mockOutput")
 	make := C.CString("A monitor")
+	res := client.getResource(output)
 	C.wl_output_send_geometry(res, 0, 0, 301, 170, 0, make, make, 0)
 	C.wl_output_send_mode(res, 0x1|0x2, 1920, 1080, 60000)
 	C.free(unsafe.Pointer(make))
@@ -248,6 +255,16 @@ func (*mockOutput) Bind(client *Client, res *C.struct_wl_resource, version uint3
 }
 
 func (*mockOutput) Release(client *Client) {}
+
+type mockDataDeviceManager struct {
+	comp *mockCompositor
+}
+
+func (*mockDataDeviceManager) Bind(client *Client, version uint32)                     {}
+func (*mockDataDeviceManager) CreateDataSource(client *Client, id ObjectID) DataSource { return nil }
+func (*mockDataDeviceManager) GetDataDevice(client *Client, id ObjectID, seat Seat) DataDevice {
+	return nil
+}
 
 func main() {
 	// egl.Init()
@@ -277,17 +294,20 @@ func main() {
 	shell := &mockShell{comp: comp}
 	xdgWmBase := &mockXdgWmBase{comp: comp}
 	seat := &mockSeat{comp: comp}
+	ddm := &mockDataDeviceManager{comp: comp}
 	out := &mockOutput{}
 
 	comp.shell = shell
 	comp.wmBase = xdgWmBase
 	comp.seat = seat
+	comp.ddm = ddm
 	comp.outputs = append(comp.outputs, out)
 
 	wldpy.CreateCompositorGlobal(comp)
 	wldpy.CreateShellGlobal(comp.shell)
 	wldpy.CreateXdgWmBaseGlobal(comp.wmBase)
 	wldpy.CreateSeatGlobal(comp.seat)
+	wldpy.CreateDataDeviceManagerGlobal(comp.ddm)
 	wldpy.CreateOutputGlobal(out)
 	// eglBindWaylandDisplayWL(edpy, wldpy.dpy)
 	C.wl_display_init_shm(wldpy.dpy)
