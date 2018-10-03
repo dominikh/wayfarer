@@ -8,6 +8,17 @@ struct wl_compositor_interface wayfarerCompositorInterface = {
 	&wayfarerCompositorCreateRegion,
 };
 
+struct wl_seat_interface wayfarerSeatInterface = {
+	&wayfarerSeatGetPointer,
+	&wayfarerSeatGetKeyboard,
+	&wayfarerSeatGetTouch,
+	&wayfarerSeatRelease,
+};
+
+struct wl_output_interface wayfarerOutputInterface = {
+	&wayfarerOutputRelease,
+};
+
 struct wl_shell_interface wayfarerShellInterface = {
 	&wayfarerShellGetShellSurface,
 };
@@ -86,6 +97,35 @@ void wayfarerCompositorCreateRegion(struct wl_client *client, struct wl_resource
 }
 void wayfarerCompositorBind(struct wl_client *client, void *data, uint32_t version, uint32_t id) {
 	wayfarerCompositorBindGo(client, data, version, id);
+}
+
+// wl_seat
+void wayfarerSeatGetPointerGo(struct wl_client *client, struct wl_resource *resource, uint32_t id);
+void wayfarerSeatGetKeyboardGo(struct wl_client *client, struct wl_resource *resource, uint32_t id);
+void wayfarerSeatGetTouchGo(struct wl_client *client, struct wl_resource *resource, uint32_t id);
+void wayfarerSeatReleaseGo(struct wl_client *client, struct wl_resource *resource);
+
+void wayfarerSeatGetPointer(struct wl_client *client, struct wl_resource *resource, uint32_t id){
+	wayfarerSeatGetPointer(client, resource, id);
+}
+void wayfarerSeatGetKeyboard(struct wl_client *client, struct wl_resource *resource, uint32_t id){
+	wayfarerSeatGetKeyboard(client, resource, id);
+}
+void wayfarerSeatGetTouch(struct wl_client *client, struct wl_resource *resource, uint32_t id){
+	wayfarerSeatGetTouch(client, resource, id);
+}
+void wayfarerSeatRelease(struct wl_client *client, struct wl_resource *resource){
+	wayfarerSeatRelease(client, resource);
+}
+
+// wl_output
+void wayfarerOutputReleaseGo(struct wl_client *client, struct wl_resource *resource);
+void wayfarerOutputBindGo(struct wl_client *client, void *data, uint32_t version, uint32_t id);
+void wayfarerOutputRelease(struct wl_client *client, struct wl_resource *resource) {
+	wayfarerOutputReleaseGo(client, resource);
+}
+void wayfarerOutputBind(struct wl_client *client, void *data, uint32_t version, uint32_t id) {
+	wayfarerOutputBindGo(client, data, version, id);
 }
 
 // wl_shell

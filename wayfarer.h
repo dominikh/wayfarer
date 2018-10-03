@@ -5,6 +5,16 @@ void wayfarerCompositorCreateSurface(struct wl_client *client, struct wl_resourc
 void wayfarerCompositorCreateRegion(struct wl_client *client, struct wl_resource *resource, uint32_t id);
 void wayfarerCompositorBind(struct wl_client *client, void *data, uint32_t version, uint32_t id);
 
+// wl_seat
+void wayfarerSeatGetPointer(struct wl_client *client, struct wl_resource *resource, uint32_t id);
+void wayfarerSeatGetKeyboard(struct wl_client *client, struct wl_resource *resource, uint32_t id);
+void wayfarerSeatGetTouch(struct wl_client *client, struct wl_resource *resource, uint32_t id);
+void wayfarerSeatRelease(struct wl_client *client, struct wl_resource *resource);
+
+// wl_output
+void wayfarerOutputRelease(struct wl_client *client, struct wl_resource *resource);
+void wayfarerOutputBind(struct wl_client *client, void *data, uint32_t version, uint32_t id);
+
 // wl_shell
 void wayfarerShellGetShellSurface(struct wl_client *client, struct wl_resource *resource, uint32_t id, struct wl_resource *surface);
 void wayfarerShellBind(struct wl_client *client, void *data, uint32_t version, uint32_t id);
@@ -70,6 +80,7 @@ void wayfarerXDGToplevelUnsetFullscreen(struct wl_client *client, struct wl_reso
 void wayfarerXDGToplevelSetMinimized(struct wl_client *client, struct wl_resource *resource);
 
 extern struct wl_compositor_interface wayfarerCompositorInterface;
+extern struct wl_output_interface wayfarerOutputInterface;
 extern struct wl_shell_interface wayfarerShellInterface;
 extern struct xdg_wm_base_interface wayfarerXdgWmBaseInterface;
 extern struct wl_surface_interface wayfarerSurfaceInterface;
@@ -77,3 +88,4 @@ extern struct wl_region_interface wayfarerRegionInterface;
 extern struct xdg_positioner_interface wayfarerXDGPositionerInterface;
 extern struct xdg_surface_interface wayfarerXDGSurfaceInterface;
 extern struct xdg_toplevel_interface wayfarerXDGToplevelInterface;
+extern struct wl_seat_interface wayfarerSeatInterface;

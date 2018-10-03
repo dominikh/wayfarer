@@ -18,6 +18,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/BurntSushi/xgb"
 	"honnef.co/go/egl"
 )
 
@@ -108,95 +109,145 @@ var (
 )
 
 func (dpy *Display) CreateCompositorGlobal(comp Compositor) {
-	data := addObject(comp)
+	data := addGlobal(comp)
 	C.wl_global_create(dpy.dpy, &C.wl_compositor_interface, 3, unsafe.Pointer(data), (*[0]byte)(C.wayfarerCompositorBind))
 }
 
 func (dpy *Display) CreateShellGlobal(shell Shell) {
-	data := addObject(shell)
+	data := addGlobal(shell)
 	C.wl_global_create(dpy.dpy, &C.wl_shell_interface, 1, unsafe.Pointer(data), (*[0]byte)(C.wayfarerShellBind))
 }
 
 func (dpy *Display) CreateXdgWmBaseGlobal(shell XdgWmBase) {
-	data := addObject(shell)
+	data := addGlobal(shell)
 	C.wl_global_create(dpy.dpy, &C.xdg_wm_base_interface, 2, unsafe.Pointer(data), (*[0]byte)(C.wayfarerXdgWmBaseBind))
 }
 
 func (dpy *Display) CreateSeatGlobal(seat Seat) {
-	data := addObject(seat)
+	data := addGlobal(seat)
 	C.wl_global_create(dpy.dpy, &C.wl_seat_interface, 1, unsafe.Pointer(data), (*[0]byte)(C.wayfarerSeatBind))
 }
 
-type mockSurface struct{}
-
-func (mockSurface) Destroy(client *C.struct_wl_client)                             {}
-func (mockSurface) Attach(client *C.struct_wl_client, buffer Buffer, x, y int32)   {}
-func (mockSurface) Damage(client *C.struct_wl_client, x, y, width, height int32)   {}
-func (mockSurface) Frame(client *C.struct_wl_client, callback uint32)              {}
-func (mockSurface) SetOpaqueRegion(client *C.struct_wl_client, region Region)      {}
-func (mockSurface) SetInputRegion(client *C.struct_wl_client, region Region)       {}
-func (mockSurface) Commit(client *C.struct_wl_client)                              {}
-func (mockSurface) SetBufferTransform(client *C.struct_wl_client, transform int32) {}
-func (mockSurface) SetBufferScale(client *C.struct_wl_client, scale int32)         {}
-
-type mockCompositor struct{}
-
-func (mockCompositor) CreateSurface(client *C.struct_wl_client, id ObjectID) Surface {
-	fmt.Println("CreateSurface")
-	return mockSurface{}
+func (dpy *Display) CreateOutputGlobal(output Output) {
+	data := addGlobal(output)
+	C.wl_global_create(dpy.dpy, &C.wl_output_interface, 1, unsafe.Pointer(data), (*[0]byte)(C.wayfarerOutputBind))
 }
 
-func (mockCompositor) CreateRegion(client *C.struct_wl_client, id ObjectID) Region {
+type mockSurface struct {
+	comp *mockCompositor
+}
+
+func (*mockSurface) Destroy(client *Client)                             {}
+func (*mockSurface) Attach(client *Client, buffer Buffer, x, y int32)   {}
+func (*mockSurface) Damage(client *Client, x, y, width, height int32)   {}
+func (*mockSurface) Frame(client *Client, callback uint32)              {}
+func (*mockSurface) SetOpaqueRegion(client *Client, region Region)      {}
+func (*mockSurface) SetInputRegion(client *Client, region Region)       {}
+func (*mockSurface) Commit(client *Client)                              {}
+func (*mockSurface) SetBufferTransform(client *Client, transform int32) {}
+func (*mockSurface) SetBufferScale(client *Client, scale int32)         {}
+
+type mockCompositor struct {
+	X *xgb.Conn
+
+	shell  *mockShell
+	wmBase *mockXdgWmBase
+	seat   *mockSeat
+
+	outputs []*mockOutput
+}
+
+func (*mockCompositor) Bind(client *Client, res *C.struct_wl_resource, version uint32) {}
+
+func (comp *mockCompositor) CreateSurface(client *Client, id ObjectID) Surface {
+	return &mockSurface{comp: comp}
+}
+
+func (*mockCompositor) CreateRegion(client *Client, id ObjectID) Region {
 	fmt.Println("CreateRegion")
 	return nil
 }
 
-type mockShell struct{}
+type mockShell struct {
+	comp *mockCompositor
+}
 
-func (mockShell) GetShellSurface(client *C.struct_wl_client, id ObjectID, surface Surface) {
+func (*mockShell) Bind(client *Client, res *C.struct_wl_resource, version uint32) {}
+
+func (*mockShell) GetShellSurface(client *Client, id ObjectID, surface Surface) {
 	fmt.Println("GetShellSurface")
 }
 
-type mockXdgWmBase struct{}
+type mockXdgWmBase struct {
+	comp *mockCompositor
+}
 
-func (mockXdgWmBase) Destroy(client *C.struct_wl_client) {}
-func (mockXdgWmBase) CreatePositioner(client *C.struct_wl_client, id ObjectID) XDGPositioner {
+func (*mockXdgWmBase) Bind(client *Client, res *C.struct_wl_resource, version uint32) {}
+func (*mockXdgWmBase) Destroy(client *Client)                                         {}
+func (*mockXdgWmBase) CreatePositioner(client *Client, id ObjectID) XDGPositioner {
 	return nil
 }
-func (mockXdgWmBase) GetXDGSurface(client *C.struct_wl_client, id ObjectID, surface Surface) XDGSurface {
-	return mockXDGSurface{}
+func (*mockXdgWmBase) GetXDGSurface(client *Client, id ObjectID, surface Surface) XDGSurface {
+	return &mockXDGSurface{surface.(*mockSurface)}
 }
-func (mockXdgWmBase) Pong(client *C.struct_wl_client, serial uint32) {}
+func (*mockXdgWmBase) Pong(client *Client, serial uint32) {}
 
-type mockXDGSurface struct{}
-
-func (mockXDGSurface) Destroy(client *C.struct_wl_client) {}
-func (mockXDGSurface) GetToplevel(client *C.struct_wl_client, id ObjectID) XDGToplevel {
-	return mockToplevel{}
+type mockXDGSurface struct {
+	surface *mockSurface
 }
-func (mockXDGSurface) GetPopup(client *C.struct_wl_client, id ObjectID, parent *C.struct_wl_resource, positioner XDGPositioner) {
+
+// wl_surface_send_enter(struct wl_resource *resource_, struct wl_resource *output)
+
+func (*mockXDGSurface) Destroy(client *Client) {}
+func (surface *mockXDGSurface) GetToplevel(client *Client, id ObjectID) XDGToplevel {
+	obj := &mockToplevel{surface: surface}
+	C.wl_surface_send_enter(client.getResource(surface.surface), client.getResource(surface.surface.comp.outputs[0]))
+	return obj
 }
-func (mockXDGSurface) SetWindowGeometry(client *C.struct_wl_client, x, y, width, height int32) {}
-func (mockXDGSurface) AckConfigure(client *C.struct_wl_client, serial uint32)                  {}
+func (*mockXDGSurface) GetPopup(client *Client, id ObjectID, parent *C.struct_wl_resource, positioner XDGPositioner) {
+}
+func (*mockXDGSurface) SetWindowGeometry(client *Client, x, y, width, height int32) {}
+func (*mockXDGSurface) AckConfigure(client *Client, serial uint32)                  {}
 
-type mockSeat struct{}
+type mockSeat struct {
+	comp *mockCompositor
+}
 
-type mockToplevel struct{}
+func (*mockSeat) Bind(client *Client, res *C.struct_wl_resource, version uint32) {}
 
-func (mockToplevel) Destroy(client *C.struct_wl_client)                                              {}
-func (mockToplevel) SetParent(client *C.struct_wl_client, parent *C.struct_wl_resource)              {}
-func (mockToplevel) SetTitle(client *C.struct_wl_client, title string)                               {}
-func (mockToplevel) SetAppID(client *C.struct_wl_client, app_id string)                              {}
-func (mockToplevel) ShowWindowMenu(client *C.struct_wl_client, seat Seat, serial uint32, x, y int32) {}
-func (mockToplevel) Move(client *C.struct_wl_client, seat Seat, serial uint32)                       {}
-func (mockToplevel) Resize(client *C.struct_wl_client, seat Seat, serial uint32, edges uint32)       {}
-func (mockToplevel) SetMaxSize(client *C.struct_wl_client, width, height int32)                      {}
-func (mockToplevel) SetMinSize(client *C.struct_wl_client, width, height int32)                      {}
-func (mockToplevel) SetMaximized(client *C.struct_wl_client)                                         {}
-func (mockToplevel) UnsetMaximized(client *C.struct_wl_client)                                       {}
-func (mockToplevel) SetFullscreen(client *C.struct_wl_client, output *C.struct_wl_resource)          {}
-func (mockToplevel) UnsetFullscreen(client *C.struct_wl_client)                                      {}
-func (mockToplevel) SetMinimized(client *C.struct_wl_client)                                         {}
+type mockToplevel struct {
+	surface *mockXDGSurface
+}
+
+func (*mockToplevel) Destroy(client *Client)                                 {}
+func (*mockToplevel) SetParent(client *Client, parent *C.struct_wl_resource) {}
+func (*mockToplevel) SetTitle(client *Client, title string)                  {}
+func (*mockToplevel) SetAppID(client *Client, app_id string)                 {}
+func (*mockToplevel) ShowWindowMenu(client *Client, seat Seat, serial uint32, x, y int32) {
+}
+func (*mockToplevel) Move(client *Client, seat Seat, serial uint32)                 {}
+func (*mockToplevel) Resize(client *Client, seat Seat, serial uint32, edges uint32) {}
+func (*mockToplevel) SetMaxSize(client *Client, width, height int32)                {}
+func (*mockToplevel) SetMinSize(client *Client, width, height int32)                {}
+func (*mockToplevel) SetMaximized(client *Client)                                   {}
+func (*mockToplevel) UnsetMaximized(client *Client)                                 {}
+func (*mockToplevel) SetFullscreen(client *Client, output *C.struct_wl_resource)    {}
+func (*mockToplevel) UnsetFullscreen(client *Client)                                {}
+func (*mockToplevel) SetMinimized(client *Client)                                   {}
+
+type mockOutput struct {
+}
+
+func (*mockOutput) Bind(client *Client, res *C.struct_wl_resource, version uint32) {
+	fmt.Println("bind mockOutput")
+	make := C.CString("A monitor")
+	C.wl_output_send_geometry(res, 0, 0, 301, 170, 0, make, make, 0)
+	C.wl_output_send_mode(res, 0x1|0x2, 1920, 1080, 60000)
+	C.free(unsafe.Pointer(make))
+	C.wl_output_send_done(res)
+}
+
+func (*mockOutput) Release(client *Client) {}
 
 func main() {
 	// egl.Init()
@@ -215,10 +266,29 @@ func main() {
 	}
 	fmt.Println(socket)
 
-	wldpy.CreateCompositorGlobal(mockCompositor{})
-	wldpy.CreateShellGlobal(mockShell{})
-	wldpy.CreateXdgWmBaseGlobal(mockXdgWmBase{})
-	wldpy.CreateSeatGlobal(mockSeat{})
+	X, err := xgb.NewConn()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	comp := &mockCompositor{
+		X: X,
+	}
+	shell := &mockShell{comp: comp}
+	xdgWmBase := &mockXdgWmBase{comp: comp}
+	seat := &mockSeat{comp: comp}
+	out := &mockOutput{}
+
+	comp.shell = shell
+	comp.wmBase = xdgWmBase
+	comp.seat = seat
+	comp.outputs = append(comp.outputs, out)
+
+	wldpy.CreateCompositorGlobal(comp)
+	wldpy.CreateShellGlobal(comp.shell)
+	wldpy.CreateXdgWmBaseGlobal(comp.wmBase)
+	wldpy.CreateSeatGlobal(comp.seat)
+	wldpy.CreateOutputGlobal(out)
 	// eglBindWaylandDisplayWL(edpy, wldpy.dpy)
 	C.wl_display_init_shm(wldpy.dpy)
 
