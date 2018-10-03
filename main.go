@@ -199,15 +199,15 @@ func (mockToplevel) UnsetFullscreen(client *C.struct_wl_client)                 
 func (mockToplevel) SetMinimized(client *C.struct_wl_client)                                         {}
 
 func main() {
-	egl.Init()
-	gpBindWaylandDisplayWL = C.PFNEGLBINDWAYLANDDISPLAYWL(getProcAddr("eglBindWaylandDisplayWL"))
+	// egl.Init()
+	// gpBindWaylandDisplayWL = C.PFNEGLBINDWAYLANDDISPLAYWL(getProcAddr("eglBindWaylandDisplayWL"))
 
 	wldpy, err := NewDisplay()
 	if err != nil {
 		log.Fatal(err)
 	}
-	edpy := egl.GetDisplay(nil)
-	egl.Initialize(edpy, nil, nil)
+	// edpy := egl.GetDisplay(nil)
+	// egl.Initialize(edpy, nil, nil)
 
 	socket, ok := wldpy.AddSocketAuto()
 	if !ok {
@@ -219,7 +219,7 @@ func main() {
 	wldpy.CreateShellGlobal(mockShell{})
 	wldpy.CreateXdgWmBaseGlobal(mockXdgWmBase{})
 	wldpy.CreateSeatGlobal(mockSeat{})
-	eglBindWaylandDisplayWL(edpy, wldpy.dpy)
+	// eglBindWaylandDisplayWL(edpy, wldpy.dpy)
 	C.wl_display_init_shm(wldpy.dpy)
 
 	evloop := C.wl_display_get_event_loop(wldpy.dpy)
