@@ -48,20 +48,20 @@ type XDGSurface interface {
 }
 
 type XDGToplevel interface {
-	DestroyGo(client *C.struct_wl_client)
-	SetParentGo(client *C.struct_wl_client, parent *C.struct_wl_resource)
-	SetTitleGo(client *C.struct_wl_client, title string)
-	SetAppIDGo(client *C.struct_wl_client, app_id string)
-	ShowWindowMenuGo(client *C.struct_wl_client, seat Seat, serial uint32, x, y int32)
-	MoveGo(client *C.struct_wl_client, seat Seat, serial C.uint32_t)
-	ResizeGo(client *C.struct_wl_client, seat Seat, serial uint32, edges uint32)
-	SetMaxSizeGo(client *C.struct_wl_client, width, height int32)
-	SetMinSizeGo(client *C.struct_wl_client, width, height int32)
-	SetMaximizedGo(client *C.struct_wl_client)
-	UnsetMaximizedGo(client *C.struct_wl_client)
-	SetFullscreenGo(client *C.struct_wl_client, output *C.struct_wl_resource)
-	UnsetFullscreenGo(client *C.struct_wl_client)
-	SetMinimizedGo(client *C.struct_wl_client)
+	Destroy(client *C.struct_wl_client)
+	SetParent(client *C.struct_wl_client, parent *C.struct_wl_resource)
+	SetTitle(client *C.struct_wl_client, title string)
+	SetAppID(client *C.struct_wl_client, app_id string)
+	ShowWindowMenu(client *C.struct_wl_client, seat Seat, serial uint32, x, y int32)
+	Move(client *C.struct_wl_client, seat Seat, serial uint32)
+	Resize(client *C.struct_wl_client, seat Seat, serial uint32, edges uint32)
+	SetMaxSize(client *C.struct_wl_client, width, height int32)
+	SetMinSize(client *C.struct_wl_client, width, height int32)
+	SetMaximized(client *C.struct_wl_client)
+	UnsetMaximized(client *C.struct_wl_client)
+	SetFullscreen(client *C.struct_wl_client, output *C.struct_wl_resource)
+	UnsetFullscreen(client *C.struct_wl_client)
+	SetMinimized(client *C.struct_wl_client)
 }
 
 type Surface interface {
@@ -298,70 +298,72 @@ func wayfarerXDGSurfaceAckConfigureGo(client *C.struct_wl_client, resource *C.st
 
 //export wayfarerXDGToplevelDestroyGo
 func wayfarerXDGToplevelDestroyGo(client *C.struct_wl_client, resource *C.struct_wl_resource) {
-
+	getObject(resource).(XDGToplevel).Destroy(client)
 }
 
 //export wayfarerXDGToplevelSetParentGo
 func wayfarerXDGToplevelSetParentGo(client *C.struct_wl_client, resource *C.struct_wl_resource, parent *C.struct_wl_resource) {
-
+	getObject(resource).(XDGToplevel).SetParent(client, parent)
 }
 
 //export wayfarerXDGToplevelSetTitleGo
 func wayfarerXDGToplevelSetTitleGo(client *C.struct_wl_client, resource *C.struct_wl_resource, title *C.char) {
-
+	// TODO(dh): are we responsible for freeing the *C.char?
+	getObject(resource).(XDGToplevel).SetTitle(client, C.GoString(title))
 }
 
 //export wayfarerXDGToplevelSetAppIDGo
 func wayfarerXDGToplevelSetAppIDGo(client *C.struct_wl_client, resource *C.struct_wl_resource, app_id *C.char) {
-
+	// TODO(dh): are we responsible for freeing the *C.char?
+	getObject(resource).(XDGToplevel).SetAppID(client, C.GoString(app_id))
 }
 
 //export wayfarerXDGToplevelShowWindowMenuGo
 func wayfarerXDGToplevelShowWindowMenuGo(client *C.struct_wl_client, resource *C.struct_wl_resource, seat *C.struct_wl_resource, serial C.uint32_t, x, y C.int32_t) {
-
+	getObject(resource).(XDGToplevel).ShowWindowMenu(client, seat, uint32(serial), int32(x), int32(y))
 }
 
 //export wayfarerXDGToplevelMoveGo
 func wayfarerXDGToplevelMoveGo(client *C.struct_wl_client, resource *C.struct_wl_resource, seat *C.struct_wl_resource, serial C.uint32_t) {
-
+	getObject(resource).(XDGToplevel).Move(client, getObject(seat).(Seat), uint32(serial))
 }
 
 //export wayfarerXDGToplevelResizeGo
 func wayfarerXDGToplevelResizeGo(client *C.struct_wl_client, resource *C.struct_wl_resource, seat *C.struct_wl_resource, serial C.uint32_t, edges C.uint32_t) {
-
+	getObject(resource).(XDGToplevel).Resize(client, getObject(seat).(Seat), uint32(serial), uint32(edges))
 }
 
 //export wayfarerXDGToplevelSetMaxSizeGo
 func wayfarerXDGToplevelSetMaxSizeGo(client *C.struct_wl_client, resource *C.struct_wl_resource, width, height C.int32_t) {
-
+	getObject(resource).(XDGToplevel).SetMaxSize(client, int32(width), int32(height))
 }
 
 //export wayfarerXDGToplevelSetMinSizeGo
 func wayfarerXDGToplevelSetMinSizeGo(client *C.struct_wl_client, resource *C.struct_wl_resource, width, height C.int32_t) {
-
+	getObject(resource).(XDGToplevel).SetMinSize(client, int32(width), int32(height))
 }
 
 //export wayfarerXDGToplevelSetMaximizedGo
 func wayfarerXDGToplevelSetMaximizedGo(client *C.struct_wl_client, resource *C.struct_wl_resource) {
-
+	getObject(resource).(XDGToplevel).SetMaximized(client)
 }
 
 //export wayfarerXDGToplevelUnsetMaximizedGo
 func wayfarerXDGToplevelUnsetMaximizedGo(client *C.struct_wl_client, resource *C.struct_wl_resource) {
-
+	getObject(resource).(XDGToplevel).UnsetMaximized(client)
 }
 
 //export wayfarerXDGToplevelSetFullscreenGo
 func wayfarerXDGToplevelSetFullscreenGo(client *C.struct_wl_client, resource *C.struct_wl_resource, output *C.struct_wl_resource) {
-
+	getObject(resource).(XDGToplevel).SetFullscreen(client, output)
 }
 
 //export wayfarerXDGToplevelUnsetFullscreenGo
 func wayfarerXDGToplevelUnsetFullscreenGo(client *C.struct_wl_client, resource *C.struct_wl_resource) {
-
+	getObject(resource).(XDGToplevel).UnsetFullscreen(client)
 }
 
 //export wayfarerXDGToplevelSetMinimizedGo
 func wayfarerXDGToplevelSetMinimizedGo(client *C.struct_wl_client, resource *C.struct_wl_resource) {
-
+	getObject(resource).(XDGToplevel).SetMinimized(client)
 }
