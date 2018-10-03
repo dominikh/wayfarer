@@ -129,65 +129,65 @@ func (dpy *Display) CreateSeatGlobal(seat Seat) {
 
 type mockSurface struct{}
 
-func (mockSurface) Destroy(client *C.struct_wl_client, resource *C.struct_wl_resource) {}
-func (mockSurface) Attach(client *C.struct_wl_client, resource *C.struct_wl_resource, buffer C.struct_wl_resource, x C.int32_t, y C.int32_t) {
+func (mockSurface) Destroy(client *C.struct_wl_client) {}
+func (mockSurface) Attach(client *C.struct_wl_client, buffer Buffer, x, y int32) {
 }
-func (mockSurface) Damage(client *C.struct_wl_client, resource *C.struct_wl_resource, x C.int32_t, y C.int32_t, width C.int32_t, height C.int32_t) {
+func (mockSurface) Damage(client *C.struct_wl_client, x, y, width, height int32) {
 }
-func (mockSurface) Frame(client *C.struct_wl_client, resource *C.struct_wl_resource, callback C.uint32_t) {
+func (mockSurface) Frame(client *C.struct_wl_client, callback uint32) {
 }
-func (mockSurface) SetOpaqueRegion(client *C.struct_wl_client, resource *C.struct_wl_resource, region *C.struct_wl_resource) {
+func (mockSurface) SetOpaqueRegion(client *C.struct_wl_client, region Region) {
 }
-func (mockSurface) SetInputRegion(client *C.struct_wl_client, resource *C.struct_wl_resource, region *C.struct_wl_resource) {
+func (mockSurface) SetInputRegion(client *C.struct_wl_client, region Region) {
 }
-func (mockSurface) Commit(client *C.struct_wl_client, resource *C.struct_wl_resource) {}
-func (mockSurface) SetBufferTransform(client *C.struct_wl_client, resource *C.struct_wl_resource, transform C.int32_t) {
+func (mockSurface) Commit(client *C.struct_wl_client) {}
+func (mockSurface) SetBufferTransform(client *C.struct_wl_client, transform int32) {
 }
-func (mockSurface) SetBufferScale(client *C.struct_wl_client, resource *C.struct_wl_resource, scale C.int32_t) {
+func (mockSurface) SetBufferScale(client *C.struct_wl_client, scale int32) {
 }
 
 type mockCompositor struct{}
 
-func (mockCompositor) CreateSurface(client *C.struct_wl_client, resource *C.struct_wl_resource, id ObjectID) Surface {
-	fmt.Println("CreateSurface", resource.object.id)
+func (mockCompositor) CreateSurface(client *C.struct_wl_client, id ObjectID) Surface {
+	fmt.Println("CreateSurface")
 	return mockSurface{}
 }
 
-func (mockCompositor) CreateRegion(client *C.struct_wl_client, resource *C.struct_wl_resource, id ObjectID) Region {
+func (mockCompositor) CreateRegion(client *C.struct_wl_client, id ObjectID) Region {
 	fmt.Println("CreateRegion")
 	return nil
 }
 
 type mockShell struct{}
 
-func (mockShell) GetShellSurface(client *C.struct_wl_client, resource *C.struct_wl_resource, id ObjectID, surface *C.struct_wl_resource) {
+func (mockShell) GetShellSurface(client *C.struct_wl_client, id ObjectID, surface Surface) {
 	fmt.Println("GetShellSurface")
 }
 
 type mockXdgWmBase struct{}
 
-func (mockXdgWmBase) Destroy(client *C.struct_wl_client, resource *C.struct_wl_resource) {
+func (mockXdgWmBase) Destroy(client *C.struct_wl_client) {
 }
-func (mockXdgWmBase) CreatePositioner(client *C.struct_wl_client, resource *C.struct_wl_resource, id ObjectID) XDGPositioner {
+func (mockXdgWmBase) CreatePositioner(client *C.struct_wl_client, id ObjectID) XDGPositioner {
 	return nil
 }
-func (mockXdgWmBase) GetXDGSurface(client *C.struct_wl_client, resource *C.struct_wl_resource, id ObjectID, surface *C.struct_wl_resource) XDGSurface {
+func (mockXdgWmBase) GetXDGSurface(client *C.struct_wl_client, id ObjectID, surface Surface) XDGSurface {
 	return mockXDGSurface{}
 }
-func (mockXdgWmBase) Pong(client *C.struct_wl_client, resource *C.struct_wl_resource, serial C.uint32_t) {
+func (mockXdgWmBase) Pong(client *C.struct_wl_client, serial uint32) {
 }
 
 type mockXDGSurface struct{}
 
-func (mockXDGSurface) Destroy(client *C.struct_wl_client, resource *C.struct_wl_resource) {}
-func (mockXDGSurface) GetToplevel(client *C.struct_wl_client, resource *C.struct_wl_resource, id ObjectID) XDGToplevel {
+func (mockXDGSurface) Destroy(client *C.struct_wl_client) {}
+func (mockXDGSurface) GetToplevel(client *C.struct_wl_client, id ObjectID) XDGToplevel {
 	return nil
 }
-func (mockXDGSurface) GetPopup(client *C.struct_wl_client, resource *C.struct_wl_resource, id ObjectID, parent *C.struct_wl_resource, positioner *C.struct_wl_resource) {
+func (mockXDGSurface) GetPopup(client *C.struct_wl_client, id ObjectID, parent *C.struct_wl_resource, positioner XDGPositioner) {
 }
-func (mockXDGSurface) SetWindowGeometry(client *C.struct_wl_client, resource *C.struct_wl_resource, x, y, width, height C.int32_t) {
+func (mockXDGSurface) SetWindowGeometry(client *C.struct_wl_client, x, y, width, height int32) {
 }
-func (mockXDGSurface) AckConfigure(client *C.struct_wl_client, resource *C.struct_wl_resource, serial C.uint32_t) {
+func (mockXDGSurface) AckConfigure(client *C.struct_wl_client, serial uint32) {
 }
 
 type mockSeat struct{}

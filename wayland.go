@@ -12,75 +12,75 @@ import (
 )
 
 type Compositor interface {
-	CreateSurface(client *C.struct_wl_client, resource *C.struct_wl_resource, id ObjectID) Surface
-	CreateRegion(client *C.struct_wl_client, resource *C.struct_wl_resource, id ObjectID) Region
+	CreateSurface(client *C.struct_wl_client, id ObjectID) Surface
+	CreateRegion(client *C.struct_wl_client, id ObjectID) Region
 }
 
 type Shell interface {
-	GetShellSurface(client *C.struct_wl_client, resource *C.struct_wl_resource, id ObjectID, surface *C.struct_wl_resource)
+	GetShellSurface(client *C.struct_wl_client, id ObjectID, surface Surface)
 }
 
 type Seat interface{}
 
 type XdgWmBase interface {
-	Destroy(client *C.struct_wl_client, resource *C.struct_wl_resource)
-	CreatePositioner(client *C.struct_wl_client, resource *C.struct_wl_resource, id ObjectID) XDGPositioner
-	GetXDGSurface(client *C.struct_wl_client, resource *C.struct_wl_resource, id ObjectID, surface *C.struct_wl_resource) XDGSurface
-	Pong(client *C.struct_wl_client, resource *C.struct_wl_resource, serial C.uint32_t)
+	Destroy(client *C.struct_wl_client)
+	CreatePositioner(client *C.struct_wl_client, id ObjectID) XDGPositioner
+	GetXDGSurface(client *C.struct_wl_client, id ObjectID, surface Surface) XDGSurface
+	Pong(client *C.struct_wl_client, serial uint32)
 }
 
 type XDGPositioner interface {
-	Destroy(client *C.struct_wl_client, resource *C.struct_wl_resource)
-	SetSize(client *C.struct_wl_client, resource *C.struct_wl_resource, width, height C.int32_t)
-	SetAnchorRect(client *C.struct_wl_client, resource *C.struct_wl_resource, x, y, width, height C.int32_t)
-	SetAnchor(client *C.struct_wl_client, resource *C.struct_wl_resource, anchor C.uint32_t)
-	SetGravity(client *C.struct_wl_client, resource *C.struct_wl_resource, gravity C.uint32_t)
-	SetConstraintAdjustment(client *C.struct_wl_client, resource *C.struct_wl_resource, constraintAdjustment C.uint32_t)
-	SetOffset(client *C.struct_wl_client, resource *C.struct_wl_resource, x, y C.int32_t)
+	Destroy(client *C.struct_wl_client)
+	SetSize(client *C.struct_wl_client, width, height int32)
+	SetAnchorRect(client *C.struct_wl_client, x, y, width, height int32)
+	SetAnchor(client *C.struct_wl_client, anchor uint32)
+	SetGravity(client *C.struct_wl_client, gravity uint32)
+	SetConstraintAdjustment(client *C.struct_wl_client, constraintAdjustment uint32)
+	SetOffset(client *C.struct_wl_client, x, y int32)
 }
 
 type XDGSurface interface {
-	Destroy(client *C.struct_wl_client, resource *C.struct_wl_resource)
-	GetToplevel(client *C.struct_wl_client, resource *C.struct_wl_resource, id ObjectID) XDGToplevel
-	GetPopup(client *C.struct_wl_client, resource *C.struct_wl_resource, id ObjectID, parent *C.struct_wl_resource, positioner *C.struct_wl_resource)
-	SetWindowGeometry(client *C.struct_wl_client, resource *C.struct_wl_resource, x, y, width, height C.int32_t)
-	AckConfigure(client *C.struct_wl_client, resource *C.struct_wl_resource, serial C.uint32_t)
+	Destroy(client *C.struct_wl_client)
+	GetToplevel(client *C.struct_wl_client, id ObjectID) XDGToplevel
+	GetPopup(client *C.struct_wl_client, id ObjectID, parent *C.struct_wl_resource, positioner XDGPositioner)
+	SetWindowGeometry(client *C.struct_wl_client, x, y, width, height int32)
+	AckConfigure(client *C.struct_wl_client, serial uint32)
 }
 
 type XDGToplevel interface {
-	DestroyGo(client *C.struct_wl_client, resource *C.struct_wl_resource)
-	SetParentGo(client *C.struct_wl_client, resource *C.struct_wl_resource, parent *C.struct_wl_resource)
-	SetTitleGo(client *C.struct_wl_client, resource *C.struct_wl_resource, title *C.char)
-	SetAppIDGo(client *C.struct_wl_client, resource *C.struct_wl_resource, app_id *C.char)
-	ShowWindowMenuGo(client *C.struct_wl_client, resource *C.struct_wl_resource, seat *C.struct_wl_resource, serial C.uint32_t, x, y C.int32_t)
-	MoveGo(client *C.struct_wl_client, resource *C.struct_wl_resource, seat *C.struct_wl_resource, serial C.uint32_t)
-	ResizeGo(client *C.struct_wl_client, resource *C.struct_wl_resource, seat *C.struct_wl_resource, serial C.uint32_t, edges C.uint32_t)
-	SetMaxSizeGo(client *C.struct_wl_client, resource *C.struct_wl_resource, width, height C.int32_t)
-	SetMinSizeGo(client *C.struct_wl_client, resource *C.struct_wl_resource, width, height C.int32_t)
-	SetMaximizedGo(client *C.struct_wl_client, resource *C.struct_wl_resource)
-	UnsetMaximizedGo(client *C.struct_wl_client, resource *C.struct_wl_resource)
-	SetFullscreenGo(client *C.struct_wl_client, resource *C.struct_wl_resource, output *C.struct_wl_resource)
-	UnsetFullscreenGo(client *C.struct_wl_client, resource *C.struct_wl_resource)
-	SetMinimizedGo(client *C.struct_wl_client, resource *C.struct_wl_resource)
+	DestroyGo(client *C.struct_wl_client)
+	SetParentGo(client *C.struct_wl_client, parent *C.struct_wl_resource)
+	SetTitleGo(client *C.struct_wl_client, title string)
+	SetAppIDGo(client *C.struct_wl_client, app_id string)
+	ShowWindowMenuGo(client *C.struct_wl_client, seat Seat, serial uint32, x, y int32)
+	MoveGo(client *C.struct_wl_client, seat Seat, serial C.uint32_t)
+	ResizeGo(client *C.struct_wl_client, seat Seat, serial uint32, edges uint32)
+	SetMaxSizeGo(client *C.struct_wl_client, width, height int32)
+	SetMinSizeGo(client *C.struct_wl_client, width, height int32)
+	SetMaximizedGo(client *C.struct_wl_client)
+	UnsetMaximizedGo(client *C.struct_wl_client)
+	SetFullscreenGo(client *C.struct_wl_client, output *C.struct_wl_resource)
+	UnsetFullscreenGo(client *C.struct_wl_client)
+	SetMinimizedGo(client *C.struct_wl_client)
 }
 
 type Surface interface {
-	Destroy(client *C.struct_wl_client, resource *C.struct_wl_resource)
-	Attach(client *C.struct_wl_client, resource *C.struct_wl_resource, buffer C.struct_wl_resource, x C.int32_t, y C.int32_t)
-	Damage(client *C.struct_wl_client, resource *C.struct_wl_resource, x C.int32_t, y C.int32_t, width C.int32_t, height C.int32_t)
-	Frame(client *C.struct_wl_client, resource *C.struct_wl_resource, callback C.uint32_t)
-	SetOpaqueRegion(client *C.struct_wl_client, resource *C.struct_wl_resource, region *C.struct_wl_resource)
-	SetInputRegion(client *C.struct_wl_client, resource *C.struct_wl_resource, region *C.struct_wl_resource)
-	Commit(client *C.struct_wl_client, resource *C.struct_wl_resource)
-	SetBufferTransform(client *C.struct_wl_client, resource *C.struct_wl_resource, transform C.int32_t)
-	SetBufferScale(client *C.struct_wl_client, resource *C.struct_wl_resource, scale C.int32_t)
+	Destroy(client *C.struct_wl_client)
+	Attach(client *C.struct_wl_client, buffer Buffer, x, y int32)
+	Damage(client *C.struct_wl_client, x, y, width, height int32)
+	Frame(client *C.struct_wl_client, callback uint32)
+	SetOpaqueRegion(client *C.struct_wl_client, region Region)
+	SetInputRegion(client *C.struct_wl_client, region Region)
+	Commit(client *C.struct_wl_client)
+	SetBufferTransform(client *C.struct_wl_client, transform int32)
+	SetBufferScale(client *C.struct_wl_client, scale int32)
 	// DamageBuffer()
 }
 
 type Region interface {
-	Destroy(client *C.struct_wl_client, resource *C.struct_wl_resource)
-	Add(client *C.struct_wl_client, resource *C.struct_wl_resource, x C.int32_t, y C.int32_t, width C.int32_t, height C.int32_t)
-	Subtract(client *C.struct_wl_client, resource *C.struct_wl_resource, x C.int32_t, y C.int32_t, width C.int32_t, height C.int32_t)
+	Destroy(client *C.struct_wl_client)
+	Add(client *C.struct_wl_client, x, y, width, height int32)
+	Subtract(client *C.struct_wl_client, x, y, width, height int32)
 }
 
 type Buffer interface {
@@ -105,7 +105,7 @@ func addObject(obj interface{}) uintptr {
 
 //export wayfarerCompositorCreateSurfaceGo
 func wayfarerCompositorCreateSurfaceGo(client *C.struct_wl_client, resource *C.struct_wl_resource, id C.uint32_t) {
-	surface := getObject(resource).(Compositor).CreateSurface(client, resource, ObjectID(id))
+	surface := getObject(resource).(Compositor).CreateSurface(client, ObjectID(id))
 	data := addObject(surface)
 	surfaceResource := C.wl_resource_create(client, &C.wl_surface_interface, 3, C.uint(id))
 	C.wl_resource_set_implementation(surfaceResource, unsafe.Pointer(&C.wayfarerSurfaceInterface), unsafe.Pointer(data), nil)
@@ -113,7 +113,7 @@ func wayfarerCompositorCreateSurfaceGo(client *C.struct_wl_client, resource *C.s
 
 //export wayfarerCompositorCreateRegionGo
 func wayfarerCompositorCreateRegionGo(client *C.struct_wl_client, resource *C.struct_wl_resource, id C.uint32_t) {
-	region := getObject(resource).(Compositor).CreateRegion(client, resource, ObjectID(id))
+	region := getObject(resource).(Compositor).CreateRegion(client, ObjectID(id))
 	data := addObject(region)
 	regionResource := C.wl_resource_create(client, &C.wl_region_interface, 1, C.uint(id))
 	C.wl_resource_set_implementation(regionResource, unsafe.Pointer(&C.wayfarerRegionInterface), unsafe.Pointer(data), nil)
@@ -128,7 +128,7 @@ func wayfarerCompositorBindGo(client *C.struct_wl_client, data unsafe.Pointer, v
 
 //export wayfarerShellGetShellSurfaceGo
 func wayfarerShellGetShellSurfaceGo(client *C.struct_wl_client, resource *C.struct_wl_resource, id C.uint32_t, surface *C.struct_wl_resource) {
-	getObject(resource).(Shell).GetShellSurface(client, resource, ObjectID(id), surface)
+	getObject(resource).(Shell).GetShellSurface(client, ObjectID(id), getObject(surface).(Surface))
 }
 
 //export wayfarerShellBindGo
@@ -140,17 +140,17 @@ func wayfarerShellBindGo(client *C.struct_wl_client, data unsafe.Pointer, versio
 
 //export wayfarerXdgWmBaseDestroyGo
 func wayfarerXdgWmBaseDestroyGo(client *C.struct_wl_client, resource *C.struct_wl_resource) {
-	getObject(resource).(XdgWmBase).Destroy(client, resource)
+	getObject(resource).(XdgWmBase).Destroy(client)
 }
 
 //export wayfarerXdgWmBaseCreatePositionerGo
 func wayfarerXdgWmBaseCreatePositionerGo(client *C.struct_wl_client, resource *C.struct_wl_resource, id C.uint32_t) {
-	getObject(resource).(XdgWmBase).CreatePositioner(client, resource, ObjectID(id))
+	getObject(resource).(XdgWmBase).CreatePositioner(client, ObjectID(id))
 }
 
 //export wayfarerXdgWmBaseGetXDGSurfaceGo
 func wayfarerXdgWmBaseGetXDGSurfaceGo(client *C.struct_wl_client, resource *C.struct_wl_resource, id C.uint32_t, surface *C.struct_wl_resource) {
-	xdgSurface := getObject(resource).(XdgWmBase).GetXDGSurface(client, resource, ObjectID(id), surface)
+	xdgSurface := getObject(resource).(XdgWmBase).GetXDGSurface(client, ObjectID(id), getObject(surface).(Surface))
 	data := addObject(xdgSurface)
 	xdgSurfaceResource := C.wl_resource_create(client, &C.xdg_surface_interface, 1, id)
 	C.wl_resource_set_implementation(xdgSurfaceResource, unsafe.Pointer(&C.wayfarerXDGSurfaceInterface), unsafe.Pointer(data), nil)
@@ -158,7 +158,7 @@ func wayfarerXdgWmBaseGetXDGSurfaceGo(client *C.struct_wl_client, resource *C.st
 
 //export wayfarerXdgWmBasePongGo
 func wayfarerXdgWmBasePongGo(client *C.struct_wl_client, resource *C.struct_wl_resource, serial C.uint32_t) {
-	getObject(resource).(XdgWmBase).Pong(client, resource, serial)
+	getObject(resource).(XdgWmBase).Pong(client, uint32(serial))
 }
 
 //export wayfarerXdgWmBaseBindGo
@@ -175,107 +175,107 @@ func wayfarerSeatBindGo(client *C.struct_wl_client, data unsafe.Pointer, version
 
 //export wayfarerSurfaceDestroyGo
 func wayfarerSurfaceDestroyGo(client *C.struct_wl_client, resource *C.struct_wl_resource) {
-	getObject(resource).(Surface).Destroy(client, resource)
+	getObject(resource).(Surface).Destroy(client)
 }
 
 //export wayfarerSurfaceAttachGo
-func wayfarerSurfaceAttachGo(client *C.struct_wl_client, resource *C.struct_wl_resource, buffer C.struct_wl_resource, x C.int32_t, y C.int32_t) {
-	getObject(resource).(Surface).Attach(client, resource, buffer, x, y)
+func wayfarerSurfaceAttachGo(client *C.struct_wl_client, resource *C.struct_wl_resource, buffer *C.struct_wl_resource, x C.int32_t, y C.int32_t) {
+	getObject(resource).(Surface).Attach(client, getObject(buffer).(Buffer), int32(x), int32(y))
 }
 
 //export wayfarerSurfaceDamageGo
 func wayfarerSurfaceDamageGo(client *C.struct_wl_client, resource *C.struct_wl_resource, x C.int32_t, y C.int32_t, width C.int32_t, height C.int32_t) {
-	getObject(resource).(Surface).Damage(client, resource, x, y, width, height)
+	getObject(resource).(Surface).Damage(client, int32(x), int32(y), int32(width), int32(height))
 }
 
 //export wayfarerSurfaceFrameGo
 func wayfarerSurfaceFrameGo(client *C.struct_wl_client, resource *C.struct_wl_resource, callback C.uint32_t) {
-	getObject(resource).(Surface).Frame(client, resource, callback)
+	getObject(resource).(Surface).Frame(client, uint32(callback))
 }
 
 //export wayfarerSurfaceSetOpaqueRegionGo
 func wayfarerSurfaceSetOpaqueRegionGo(client *C.struct_wl_client, resource *C.struct_wl_resource, region *C.struct_wl_resource) {
-	getObject(resource).(Surface).SetOpaqueRegion(client, resource, region)
+	getObject(resource).(Surface).SetOpaqueRegion(client, getObject(region).(Region))
 }
 
 //export wayfarerSurfaceSetInputRegionGo
 func wayfarerSurfaceSetInputRegionGo(client *C.struct_wl_client, resource *C.struct_wl_resource, region *C.struct_wl_resource) {
-	getObject(resource).(Surface).SetInputRegion(client, resource, region)
+	getObject(resource).(Surface).SetInputRegion(client, getObject(region).(Region))
 }
 
 //export wayfarerSurfaceCommitGo
 func wayfarerSurfaceCommitGo(client *C.struct_wl_client, resource *C.struct_wl_resource) {
-	getObject(resource).(Surface).Commit(client, resource)
+	getObject(resource).(Surface).Commit(client)
 }
 
 //export wayfarerSurfaceSetBufferTransformGo
 func wayfarerSurfaceSetBufferTransformGo(client *C.struct_wl_client, resource *C.struct_wl_resource, transform C.int32_t) {
-	getObject(resource).(Surface).SetBufferTransform(client, resource, transform)
+	getObject(resource).(Surface).SetBufferTransform(client, int32(transform))
 }
 
 //export wayfarerSurfaceSetBufferScaleGo
 func wayfarerSurfaceSetBufferScaleGo(client *C.struct_wl_client, resource *C.struct_wl_resource, scale C.int32_t) {
-	getObject(resource).(Surface).SetBufferScale(client, resource, scale)
+	getObject(resource).(Surface).SetBufferScale(client, int32(scale))
 }
 
 //export wayfarerRegionDestroyGo
 func wayfarerRegionDestroyGo(client *C.struct_wl_client, resource *C.struct_wl_resource) {
-	getObject(resource).(Region).Destroy(client, resource)
+	getObject(resource).(Region).Destroy(client)
 }
 
 //export wayfarerRegionAddGo
 func wayfarerRegionAddGo(client *C.struct_wl_client, resource *C.struct_wl_resource, x C.int32_t, y C.int32_t, width C.int32_t, height C.int32_t) {
-	getObject(resource).(Region).Add(client, resource, x, y, width, height)
+	getObject(resource).(Region).Add(client, int32(x), int32(y), int32(width), int32(height))
 }
 
 //export wayfarerRegionSubtractGo
 func wayfarerRegionSubtractGo(client *C.struct_wl_client, resource *C.struct_wl_resource, x C.int32_t, y C.int32_t, width C.int32_t, height C.int32_t) {
-	getObject(resource).(Region).Subtract(client, resource, x, y, width, height)
+	getObject(resource).(Region).Subtract(client, int32(x), int32(y), int32(width), int32(height))
 }
 
 //export wayfarerXDGPositionerDestroyGo
 func wayfarerXDGPositionerDestroyGo(client *C.struct_wl_client, resource *C.struct_wl_resource) {
-	getObject(resource).(XDGPositioner).Destroy(client, resource)
+	getObject(resource).(XDGPositioner).Destroy(client)
 }
 
 //export wayfarerXDGPositionerSetSizeGo
 func wayfarerXDGPositionerSetSizeGo(client *C.struct_wl_client, resource *C.struct_wl_resource, width, height C.int32_t) {
-	getObject(resource).(XDGPositioner).SetSize(client, resource, width, height)
+	getObject(resource).(XDGPositioner).SetSize(client, int32(width), int32(height))
 }
 
 //export wayfarerXDGPositionerSetAnchorRectGo
 func wayfarerXDGPositionerSetAnchorRectGo(client *C.struct_wl_client, resource *C.struct_wl_resource, x, y, width, height C.int32_t) {
-	getObject(resource).(XDGPositioner).SetAnchorRect(client, resource, x, y, width, height)
+	getObject(resource).(XDGPositioner).SetAnchorRect(client, int32(x), int32(y), int32(width), int32(height))
 }
 
 //export wayfarerXDGPositionerSetAnchorGo
 func wayfarerXDGPositionerSetAnchorGo(client *C.struct_wl_client, resource *C.struct_wl_resource, anchor C.uint32_t) {
-	getObject(resource).(XDGPositioner).SetAnchor(client, resource, anchor)
+	getObject(resource).(XDGPositioner).SetAnchor(client, uint32(anchor))
 }
 
 //export wayfarerXDGPositionerSetGravityGo
 func wayfarerXDGPositionerSetGravityGo(client *C.struct_wl_client, resource *C.struct_wl_resource, gravity C.uint32_t) {
-	getObject(resource).(XDGPositioner).SetGravity(client, resource, gravity)
+	getObject(resource).(XDGPositioner).SetGravity(client, uint32(gravity))
 }
 
 //export wayfarerXDGPositionerSetConstraintAdjustmentGo
 func wayfarerXDGPositionerSetConstraintAdjustmentGo(client *C.struct_wl_client, resource *C.struct_wl_resource, constraintAdjustment C.uint32_t) {
-	getObject(resource).(XDGPositioner).SetConstraintAdjustment(client, resource, constraintAdjustment)
+	getObject(resource).(XDGPositioner).SetConstraintAdjustment(client, uint32(constraintAdjustment))
 }
 
 //export wayfarerXDGPositionerSetOffsetGo
 func wayfarerXDGPositionerSetOffsetGo(client *C.struct_wl_client, resource *C.struct_wl_resource, x, y C.int32_t) {
-	getObject(resource).(XDGPositioner).SetOffset(client, resource, x, y)
+	getObject(resource).(XDGPositioner).SetOffset(client, int32(x), int32(y))
 }
 
 //export wayfarerXDGSurfaceDestroyGo
 func wayfarerXDGSurfaceDestroyGo(client *C.struct_wl_client, resource *C.struct_wl_resource) {
-	getObject(resource).(XDGSurface).Destroy(client, resource)
+	getObject(resource).(XDGSurface).Destroy(client)
 }
 
 //export wayfarerXDGSurfaceGetToplevelGo
 func wayfarerXDGSurfaceGetToplevelGo(client *C.struct_wl_client, resource *C.struct_wl_resource, id C.uint32_t) {
-	toplevel := getObject(resource).(XDGSurface).GetToplevel(client, resource, ObjectID(id))
+	toplevel := getObject(resource).(XDGSurface).GetToplevel(client, ObjectID(id))
 	data := addObject(toplevel)
 	toplevelResource := C.wl_resource_create(client, &C.xdg_toplevel_interface, 1, id)
 	C.wl_resource_set_implementation(toplevelResource, unsafe.Pointer(&C.wayfarerXDGToplevelInterface), unsafe.Pointer(data), nil)
@@ -283,17 +283,17 @@ func wayfarerXDGSurfaceGetToplevelGo(client *C.struct_wl_client, resource *C.str
 
 //export wayfarerXDGSurfaceGetPopupGo
 func wayfarerXDGSurfaceGetPopupGo(client *C.struct_wl_client, resource *C.struct_wl_resource, id C.uint32_t, parent *C.struct_wl_resource, positioner *C.struct_wl_resource) {
-	getObject(resource).(XDGSurface).GetPopup(client, resource, ObjectID(id), parent, positioner)
+	getObject(resource).(XDGSurface).GetPopup(client, ObjectID(id), parent, getObject(positioner).(XDGPositioner))
 }
 
 //export wayfarerXDGSurfaceSetWindowGeometryGo
 func wayfarerXDGSurfaceSetWindowGeometryGo(client *C.struct_wl_client, resource *C.struct_wl_resource, x, y, width, height C.int32_t) {
-	getObject(resource).(XDGSurface).SetWindowGeometry(client, resource, x, y, width, height)
+	getObject(resource).(XDGSurface).SetWindowGeometry(client, int32(x), int32(y), int32(width), int32(height))
 }
 
 //export wayfarerXDGSurfaceAckConfigureGo
 func wayfarerXDGSurfaceAckConfigureGo(client *C.struct_wl_client, resource *C.struct_wl_resource, serial C.uint32_t) {
-	getObject(resource).(XDGSurface).AckConfigure(client, resource, serial)
+	getObject(resource).(XDGSurface).AckConfigure(client, uint32(serial))
 }
 
 //export wayfarerXDGToplevelDestroyGo
