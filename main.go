@@ -108,27 +108,23 @@ var (
 )
 
 func (dpy *Display) CreateCompositorGlobal(comp Compositor) {
-	idCur++
-	compositors[idCur] = comp
-	C.wl_global_create(dpy.dpy, &C.wl_compositor_interface, 3, unsafe.Pointer(idCur), (*[0]byte)(C.wayfarerCompositorBind))
+	data := addObject(comp)
+	C.wl_global_create(dpy.dpy, &C.wl_compositor_interface, 3, unsafe.Pointer(data), (*[0]byte)(C.wayfarerCompositorBind))
 }
 
 func (dpy *Display) CreateShellGlobal(shell Shell) {
-	idCur++
-	shells[idCur] = shell
-	C.wl_global_create(dpy.dpy, &C.wl_shell_interface, 1, unsafe.Pointer(idCur), (*[0]byte)(C.wayfarerShellBind))
+	data := addObject(shell)
+	C.wl_global_create(dpy.dpy, &C.wl_shell_interface, 1, unsafe.Pointer(data), (*[0]byte)(C.wayfarerShellBind))
 }
 
 func (dpy *Display) CreateXdgWmBaseGlobal(shell XdgWmBase) {
-	idCur++
-	xdgWmBases[idCur] = shell
-	C.wl_global_create(dpy.dpy, &C.xdg_wm_base_interface, 2, unsafe.Pointer(idCur), (*[0]byte)(C.wayfarerXdgWmBaseBind))
+	data := addObject(shell)
+	C.wl_global_create(dpy.dpy, &C.xdg_wm_base_interface, 2, unsafe.Pointer(data), (*[0]byte)(C.wayfarerXdgWmBaseBind))
 }
 
 func (dpy *Display) CreateSeatGlobal(seat Seat) {
-	idCur++
-	seats[idCur] = seat
-	C.wl_global_create(dpy.dpy, &C.wl_seat_interface, 1, unsafe.Pointer(idCur), (*[0]byte)(C.wayfarerSeatBind))
+	data := addObject(seat)
+	C.wl_global_create(dpy.dpy, &C.wl_seat_interface, 1, unsafe.Pointer(data), (*[0]byte)(C.wayfarerSeatBind))
 }
 
 type mockSurface struct{}
