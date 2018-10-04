@@ -20,3 +20,7 @@ extern struct wl_seat_interface wayfarerSeatInterface;
 extern struct wl_data_device_manager_interface wayfarerDataDeviceManagerInterface;
 extern struct wl_data_device_interface wayfarerDataDeviceInterface;
 extern struct wl_data_source_interface wayfarerDataSourceInterface;
+
+extern struct wl_keyboard_interface wayfarerKeyboardInterface;
+extern struct wl_pointer_interface wayfarerPointerInterface;
+extern struct wl_touch_interface wayfarerTouchInterface;

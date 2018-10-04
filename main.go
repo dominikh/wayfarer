@@ -138,17 +138,53 @@ func (dpy *Display) CreateOutputGlobal(output Output) {
 	C.wl_global_create(dpy.dpy, &C.wl_output_interface, 2, unsafe.Pointer(data), (*[0]byte)(C.wayfarerOutputBind))
 }
 
-type mockSurface struct {
-	comp *mockCompositor
+const (
+	stateBuffer = 1 << iota
+)
+
+type surfaceState struct {
+	changed uint
+	buffer  *C.struct_wl_resource
 }
 
-func (*mockSurface) Destroy(client *Client)                             {}
-func (*mockSurface) Attach(client *Client, buffer Buffer, x, y int32)   {}
-func (*mockSurface) Damage(client *Client, x, y, width, height int32)   {}
-func (*mockSurface) Frame(client *Client, callback uint32)              {}
-func (*mockSurface) SetOpaqueRegion(client *Client, region Region)      {}
-func (*mockSurface) SetInputRegion(client *Client, region Region)       {}
-func (*mockSurface) Commit(client *Client)                              {}
+type mockSurface struct {
+	comp     *mockCompositor
+	toplevel *mockToplevel
+
+	state   surfaceState
+	pending surfaceState
+}
+
+func (*mockSurface) Destroy(client *Client) {}
+func (surface *mockSurface) Attach(client *Client, buffer *C.struct_wl_resource, x, y int32) {
+	// TODO handle x, y
+	surface.pending.buffer = buffer
+	surface.pending.changed |= stateBuffer
+}
+func (*mockSurface) Damage(client *Client, x, y, width, height int32) {}
+func (*mockSurface) Frame(client *Client, callback uint32)            {}
+func (*mockSurface) SetOpaqueRegion(client *Client, region Region)    {}
+func (*mockSurface) SetInputRegion(client *Client, region Region)     {}
+func (surface *mockSurface) Commit(client *Client) {
+	if (surface.pending.changed & stateBuffer) != 0 {
+		// TODO I think the buffer gets "used up" on commit, and the user has to always provide one?
+		surface.state.buffer = surface.pending.buffer
+	}
+
+	var width, height C.int32_t
+	if surface.state.buffer != nil {
+		shm := &SHMBuffer{C.wl_shm_buffer_get(surface.state.buffer)}
+		// data := (*[1 << 31]byte)(shm.Data())[:shm.Height()*shm.Stride()]
+		fmt.Println(shm.Width(), shm.Height())
+
+	}
+
+	array := (*C.struct_wl_array)(C.malloc(C.ulong(unsafe.Sizeof(C.struct_wl_array{}))))
+	C.wl_array_init(array)
+	C.xdg_surface_send_configure(client.getResource(surface.toplevel.surface), 0)
+	C.xdg_toplevel_send_configure(client.getResource(surface.toplevel), width, height, array)
+	// C.wl_surface_send_enter(client.getResource(surface), client.getResource(surface.comp.outputs[0]))
+}
 func (*mockSurface) SetBufferTransform(client *Client, transform int32) {}
 func (*mockSurface) SetBufferScale(client *Client, scale int32)         {}
 
@@ -169,10 +205,17 @@ func (comp *mockCompositor) CreateSurface(client *Client, id ObjectID) Surface {
 	return &mockSurface{comp: comp}
 }
 
-func (*mockCompositor) CreateRegion(client *Client, id ObjectID) Region {
-	fmt.Println("CreateRegion")
-	return nil
+func (comp *mockCompositor) CreateRegion(client *Client, id ObjectID) Region {
+	return &mockRegion{comp: comp}
 }
+
+type mockRegion struct {
+	comp *mockCompositor
+}
+
+func (*mockRegion) Destroy(client *Client)                             {}
+func (*mockRegion) Add(client *Client, x, y, width, height int32)      {}
+func (*mockRegion) Subtract(client *Client, x, y, width, height int32) {}
 
 type mockShell struct {
 	comp *mockCompositor
@@ -207,7 +250,7 @@ type mockXDGSurface struct {
 func (*mockXDGSurface) Destroy(client *Client) {}
 func (surface *mockXDGSurface) GetToplevel(client *Client, id ObjectID) XDGToplevel {
 	obj := &mockToplevel{surface: surface}
-	C.wl_surface_send_enter(client.getResource(surface.surface), client.getResource(surface.surface.comp.outputs[0]))
+	surface.surface.toplevel = obj
 	return obj
 }
 func (*mockXDGSurface) GetPopup(client *Client, id ObjectID, parent *C.struct_wl_resource, positioner XDGPositioner) {
@@ -219,7 +262,18 @@ type mockSeat struct {
 	comp *mockCompositor
 }
 
-func (*mockSeat) Bind(client *Client, version uint32) {}
+func (seat *mockSeat) Bind(client *Client, version uint32) {
+	name := C.CString("default")
+	defer C.free(unsafe.Pointer(name))
+	// C.wl_seat_send_capabilities(client.getResource(seat), C.WL_SEAT_CAPABILITY_KEYBOARD|C.WL_SEAT_CAPABILITY_POINTER)
+	C.wl_seat_send_capabilities(client.getResource(seat), 0)
+	C.wl_seat_send_name(client.getResource(seat), name)
+}
+
+func (seat *mockSeat) GetTouch(client *Client, id ObjectID) Touch       { return nil }
+func (seat *mockSeat) GetKeyboard(client *Client, id ObjectID) Keyboard { return nil }
+func (seat *mockSeat) GetPointer(client *Client, id ObjectID) Pointer   { return nil }
+func (seat *mockSeat) Release(client *Client)                           {}
 
 type mockToplevel struct {
 	surface *mockXDGSurface

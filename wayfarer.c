@@ -108,6 +108,18 @@ struct wl_seat_interface wayfarerSeatInterface = {
 	&wayfarerSeatRelease,
 };
 
+struct wl_keyboard_interface wayfarerKeyboardInterface = {
+	// XXX
+};
+
+struct wl_pointer_interface wayfarerPointerInterface = {
+	// XXX
+};
+
+struct wl_touch_interface wayfarerTouchInterface = {
+	// XXX
+};
+
 struct wl_data_device_manager_interface wayfarerDataDeviceManagerInterface = {
 	&wayfarerDataDeviceManagerCreateDataSource,
 	&wayfarerDataDeviceManagerGetDataDevice,

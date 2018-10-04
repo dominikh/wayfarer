@@ -29,7 +29,16 @@ type Shell interface {
 
 type Seat interface {
 	Global
+
+	GetTouch(client *Client, id ObjectID) Touch
+	GetKeyboard(client *Client, id ObjectID) Keyboard
+	GetPointer(client *Client, id ObjectID) Pointer
+	Release(client *Client)
 }
+
+type Touch interface{}
+type Keyboard interface{}
+type Pointer interface{}
 
 type DataDeviceManager interface {
 	Global
@@ -102,7 +111,7 @@ type XDGToplevel interface {
 
 type Surface interface {
 	Destroy(client *Client)
-	Attach(client *Client, buffer Buffer, x, y int32)
+	Attach(client *Client, buffer *C.struct_wl_resource, x, y int32)
 	Damage(client *Client, x, y, width, height int32)
 	Frame(client *Client, callback uint32)
 	SetOpaqueRegion(client *Client, region Region)
@@ -117,10 +126,6 @@ type Region interface {
 	Destroy(client *Client)
 	Add(client *Client, x, y, width, height int32)
 	Subtract(client *Client, x, y, width, height int32)
-}
-
-type Buffer interface {
-	Destroy()
 }
 
 type Client struct {
@@ -152,7 +157,7 @@ func (c *Client) getResource(obj interface{}) *C.struct_wl_resource {
 	return c.invObjects[obj]
 }
 
-var globals = map[uintptr]interface{}{}
+var globals = map[uintptr]Global{}
 
 var idStart = uintptr(C.malloc(1e6))
 var idEnd = idStart + 1e6 - 1
@@ -162,15 +167,86 @@ func getGlobal(resource *C.struct_wl_resource) interface{} {
 	return getGlobalData(uintptr(resource.data))
 }
 
-func getGlobalData(data uintptr) interface{} {
+func getGlobalData(data uintptr) Global {
 	return globals[data]
 }
 
-func addGlobal(obj interface{}) uintptr {
+func addGlobal(obj Global) uintptr {
 	idCur++
 	globals[idCur] = obj
 	return idCur
 }
+
+type SHMBuffer struct {
+	buf *C.struct_wl_shm_buffer
+}
+
+const (
+	ARGB8888    = C.WL_SHM_FORMAT_ARGB8888
+	XRGB8888    = C.WL_SHM_FORMAT_XRGB8888
+	C8          = C.WL_SHM_FORMAT_C8
+	RGB332      = C.WL_SHM_FORMAT_RGB332
+	BGR233      = C.WL_SHM_FORMAT_BGR233
+	XRGB4444    = C.WL_SHM_FORMAT_XRGB4444
+	XBGR4444    = C.WL_SHM_FORMAT_XBGR4444
+	RGBX4444    = C.WL_SHM_FORMAT_RGBX4444
+	BGRX4444    = C.WL_SHM_FORMAT_BGRX4444
+	ARGB4444    = C.WL_SHM_FORMAT_ARGB4444
+	ABGR4444    = C.WL_SHM_FORMAT_ABGR4444
+	RGBA4444    = C.WL_SHM_FORMAT_RGBA4444
+	BGRA4444    = C.WL_SHM_FORMAT_BGRA4444
+	XRGB1555    = C.WL_SHM_FORMAT_XRGB1555
+	XBGR1555    = C.WL_SHM_FORMAT_XBGR1555
+	RGBX5551    = C.WL_SHM_FORMAT_RGBX5551
+	BGRX5551    = C.WL_SHM_FORMAT_BGRX5551
+	ARGB1555    = C.WL_SHM_FORMAT_ARGB1555
+	ABGR1555    = C.WL_SHM_FORMAT_ABGR1555
+	RGBA5551    = C.WL_SHM_FORMAT_RGBA5551
+	BGRA5551    = C.WL_SHM_FORMAT_BGRA5551
+	RGB565      = C.WL_SHM_FORMAT_RGB565
+	BGR565      = C.WL_SHM_FORMAT_BGR565
+	RGB888      = C.WL_SHM_FORMAT_RGB888
+	BGR888      = C.WL_SHM_FORMAT_BGR888
+	XBGR8888    = C.WL_SHM_FORMAT_XBGR8888
+	RGBX8888    = C.WL_SHM_FORMAT_RGBX8888
+	BGRX8888    = C.WL_SHM_FORMAT_BGRX8888
+	ABGR8888    = C.WL_SHM_FORMAT_ABGR8888
+	RGBA8888    = C.WL_SHM_FORMAT_RGBA8888
+	BGRA8888    = C.WL_SHM_FORMAT_BGRA8888
+	XRGB2101010 = C.WL_SHM_FORMAT_XRGB2101010
+	XBGR2101010 = C.WL_SHM_FORMAT_XBGR2101010
+	RGBX1010102 = C.WL_SHM_FORMAT_RGBX1010102
+	BGRX1010102 = C.WL_SHM_FORMAT_BGRX1010102
+	ARGB2101010 = C.WL_SHM_FORMAT_ARGB2101010
+	ABGR2101010 = C.WL_SHM_FORMAT_ABGR2101010
+	RGBA1010102 = C.WL_SHM_FORMAT_RGBA1010102
+	BGRA1010102 = C.WL_SHM_FORMAT_BGRA1010102
+	YUYV        = C.WL_SHM_FORMAT_YUYV
+	YVYU        = C.WL_SHM_FORMAT_YVYU
+	UYVY        = C.WL_SHM_FORMAT_UYVY
+	VYUY        = C.WL_SHM_FORMAT_VYUY
+	AYUV        = C.WL_SHM_FORMAT_AYUV
+	NV12        = C.WL_SHM_FORMAT_NV12
+	NV21        = C.WL_SHM_FORMAT_NV21
+	NV16        = C.WL_SHM_FORMAT_NV16
+	NV61        = C.WL_SHM_FORMAT_NV61
+	YUV410      = C.WL_SHM_FORMAT_YUV410
+	YVU410      = C.WL_SHM_FORMAT_YVU410
+	YUV411      = C.WL_SHM_FORMAT_YUV411
+	YVU411      = C.WL_SHM_FORMAT_YVU411
+	YUV420      = C.WL_SHM_FORMAT_YUV420
+	YVU420      = C.WL_SHM_FORMAT_YVU420
+	YUV422      = C.WL_SHM_FORMAT_YUV422
+	YVU422      = C.WL_SHM_FORMAT_YVU422
+	YUV444      = C.WL_SHM_FORMAT_YUV444
+	YVU444      = C.WL_SHM_FORMAT_YVU444
+)
+
+func (buf *SHMBuffer) Data() unsafe.Pointer { return C.wl_shm_buffer_get_data(buf.buf) }
+func (buf *SHMBuffer) Stride() int32        { return int32(C.wl_shm_buffer_get_stride(buf.buf)) }
+func (buf *SHMBuffer) Format() uint32       { return uint32(C.wl_shm_buffer_get_format(buf.buf)) }
+func (buf *SHMBuffer) Width() int32         { return int32(C.wl_shm_buffer_get_width(buf.buf)) }
+func (buf *SHMBuffer) Height() int32        { return int32(C.wl_shm_buffer_get_height(buf.buf)) }
 
 func (c *Client) addResource(iface *C.struct_wl_interface, version uint32, id uint32, impl unsafe.Pointer, obj interface{}) {
 	c.objects[id] = obj
@@ -206,22 +282,29 @@ func wayfarerCompositorBind(client *C.struct_wl_client, data unsafe.Pointer, ver
 
 //export wayfarerSeatGetPointer
 func wayfarerSeatGetPointer(client *C.struct_wl_client, resource *C.struct_wl_resource, id C.uint32_t) {
-	panic("not implemented")
+	gclient := getClient(client)
+	pointer := gclient.getObject(uint32(resource.object.id)).(Seat).GetPointer(gclient, ObjectID(id))
+	gclient.addResource(&C.wl_pointer_interface, 5, uint32(id), unsafe.Pointer(&C.wayfarerPointerInterface), pointer)
 }
 
 //export wayfarerSeatGetKeyboard
 func wayfarerSeatGetKeyboard(client *C.struct_wl_client, resource *C.struct_wl_resource, id C.uint32_t) {
-	panic("not implemented")
+	gclient := getClient(client)
+	keyboard := gclient.getObject(uint32(resource.object.id)).(Seat).GetKeyboard(gclient, ObjectID(id))
+	gclient.addResource(&C.wl_keyboard_interface, 5, uint32(id), unsafe.Pointer(&C.wayfarerKeyboardInterface), keyboard)
 }
 
 //export wayfarerSeatGetTouch
 func wayfarerSeatGetTouch(client *C.struct_wl_client, resource *C.struct_wl_resource, id C.uint32_t) {
-	panic("not implemented")
+	gclient := getClient(client)
+	touch := gclient.getObject(uint32(resource.object.id)).(Seat).GetTouch(gclient, ObjectID(id))
+	gclient.addResource(&C.wl_touch_interface, 6, uint32(id), unsafe.Pointer(&C.wayfarerTouchInterface), touch)
 }
 
 //export wayfarerSeatRelease
 func wayfarerSeatRelease(client *C.struct_wl_client, resource *C.struct_wl_resource) {
-	panic("not implemented")
+	gclient := getClient(client)
+	gclient.getObject(uint32(resource.object.id)).(Seat).Release(gclient)
 }
 
 //export wayfarerDataDeviceManagerCreateDataSource
@@ -342,6 +425,7 @@ func wayfarerSeatBind(client *C.struct_wl_client, data unsafe.Pointer, version C
 	gclient := getClient(client)
 	seat := getGlobalData(uintptr(data))
 	gclient.addResource(&C.wl_seat_interface, 5, uint32(id), unsafe.Pointer(&C.wayfarerSeatInterface), seat)
+	seat.Bind(gclient, uint32(version))
 }
 
 //export wayfarerSurfaceDestroy
@@ -353,8 +437,7 @@ func wayfarerSurfaceDestroy(client *C.struct_wl_client, resource *C.struct_wl_re
 //export wayfarerSurfaceAttach
 func wayfarerSurfaceAttach(client *C.struct_wl_client, resource *C.struct_wl_resource, buffer *C.struct_wl_resource, x C.int32_t, y C.int32_t) {
 	gclient := getClient(client)
-	gbuffer := gclient.getObject(uint32(buffer.object.id)).(Buffer)
-	gclient.getObject(uint32(resource.object.id)).(Surface).Attach(gclient, gbuffer, int32(x), int32(y))
+	gclient.getObject(uint32(resource.object.id)).(Surface).Attach(gclient, buffer, int32(x), int32(y))
 }
 
 //export wayfarerSurfaceDamage
