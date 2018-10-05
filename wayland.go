@@ -113,7 +113,7 @@ type Surface interface {
 	Destroy(client *Client)
 	Attach(client *Client, buffer *C.struct_wl_resource, x, y int32)
 	Damage(client *Client, x, y, width, height int32)
-	Frame(client *Client, callback uint32)
+	Frame(client *Client, callback *C.struct_wl_resource)
 	SetOpaqueRegion(client *Client, region Region)
 	SetInputRegion(client *Client, region Region)
 	Commit(client *Client)
@@ -449,7 +449,7 @@ func wayfarerSurfaceDamage(client *C.struct_wl_client, resource *C.struct_wl_res
 //export wayfarerSurfaceFrame
 func wayfarerSurfaceFrame(client *C.struct_wl_client, resource *C.struct_wl_resource, callback C.uint32_t) {
 	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(Surface).Frame(gclient, uint32(callback))
+	gclient.getObject(uint32(resource.object.id)).(Surface).Frame(gclient, C.wl_resource_create(client, &C.wl_callback_interface, 1, callback))
 }
 
 //export wayfarerSurfaceSetOpaqueRegion

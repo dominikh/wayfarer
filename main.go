@@ -140,11 +140,13 @@ func (dpy *Display) CreateOutputGlobal(output Output) {
 
 const (
 	stateBuffer = 1 << iota
+	stateFrameCallback
 )
 
 type surfaceState struct {
-	changed uint
-	buffer  *C.struct_wl_resource
+	changed       uint
+	buffer        *C.struct_wl_resource
+	frameCallback *C.struct_wl_resource
 }
 
 type mockSurface struct {
@@ -162,21 +164,24 @@ func (surface *mockSurface) Attach(client *Client, buffer *C.struct_wl_resource,
 	surface.pending.changed |= stateBuffer
 }
 func (*mockSurface) Damage(client *Client, x, y, width, height int32) {}
-func (*mockSurface) Frame(client *Client, callback uint32)            {}
-func (*mockSurface) SetOpaqueRegion(client *Client, region Region)    {}
-func (*mockSurface) SetInputRegion(client *Client, region Region)     {}
+func (surface *mockSurface) Frame(client *Client, callback *C.struct_wl_resource) {
+	surface.pending.frameCallback = callback
+	surface.pending.changed |= stateFrameCallback
+}
+func (*mockSurface) SetOpaqueRegion(client *Client, region Region) {}
+func (*mockSurface) SetInputRegion(client *Client, region Region)  {}
 func (surface *mockSurface) Commit(client *Client) {
 	if (surface.pending.changed & stateBuffer) != 0 {
-		// TODO I think the buffer gets "used up" on commit, and the user has to always provide one?
 		surface.state.buffer = surface.pending.buffer
 	}
+	if (surface.pending.changed & stateFrameCallback) != 0 {
+		surface.state.frameCallback = surface.pending.frameCallback
+	}
+	surface.pending.changed = 0
 
 	var width, height C.int32_t
 	if surface.state.buffer != nil {
-		shm := &SHMBuffer{C.wl_shm_buffer_get(surface.state.buffer)}
-		// data := (*[1 << 31]byte)(shm.Data())[:shm.Height()*shm.Stride()]
-		fmt.Println(shm.Width(), shm.Height())
-
+		surface.comp.graphicsBackend.Surfaces = []*mockSurface{surface}
 	}
 
 	array := (*C.struct_wl_array)(C.malloc(C.ulong(unsafe.Sizeof(C.struct_wl_array{}))))
@@ -197,6 +202,8 @@ type mockCompositor struct {
 	ddm    *mockDataDeviceManager
 
 	outputs []*mockOutput
+
+	graphicsBackend *XGraphicsBackend
 }
 
 func (*mockCompositor) Bind(client *Client, version uint32) {}
@@ -328,8 +335,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	// edpy := egl.GetDisplay(nil)
-	// egl.Initialize(edpy, nil, nil)
 
 	socket, ok := wldpy.AddSocketAuto()
 	if !ok {
@@ -342,9 +347,15 @@ func main() {
 		log.Fatal(err)
 	}
 
-	comp := &mockCompositor{
-		X: X,
+	backend, err := NewXGraphicsBackend()
+	if err != nil {
+		log.Fatal(err)
 	}
+	comp := &mockCompositor{
+		X:               X,
+		graphicsBackend: backend,
+	}
+
 	shell := &mockShell{comp: comp}
 	xdgWmBase := &mockXdgWmBase{comp: comp}
 	seat := &mockSeat{comp: comp}
@@ -368,8 +379,9 @@ func main() {
 
 	evloop := C.wl_display_get_event_loop(wldpy.dpy)
 	for {
-		C.wl_event_loop_dispatch(evloop, -1)
+		C.wl_event_loop_dispatch(evloop, 0)
 		C.wl_display_flush_clients(wldpy.dpy)
+		backend.Render()
 	}
 
 	// EGL_WL_bind_wayland_display
