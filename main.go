@@ -15,6 +15,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"time"
 	"unsafe"
 
@@ -186,9 +188,6 @@ func (surface *mockSurface) Commit(client *Client) {
 	surface.pending.changed = 0
 
 	var width, height C.int32_t
-	if surface.state.buffer != nil {
-		surface.comp.graphicsBackend.Surfaces = []*mockSurface{surface}
-	}
 
 	array := (*C.struct_wl_array)(C.malloc(C.ulong(unsafe.Sizeof(C.struct_wl_array{}))))
 	C.wl_array_init(array)
@@ -216,7 +215,9 @@ type mockCompositor struct {
 func (*mockCompositor) Bind(client *Client, version uint32) {}
 
 func (comp *mockCompositor) CreateSurface(client *Client, id ObjectID) Surface {
-	return &mockSurface{comp: comp}
+	surface := &mockSurface{comp: comp}
+	comp.graphicsBackend.AddSurface(surface)
+	return surface
 }
 
 func (comp *mockCompositor) CreateRegion(client *Client, id ObjectID) Region {
@@ -309,16 +310,15 @@ func (*mockToplevel) SetFullscreen(client *Client, output *C.struct_wl_resource)
 func (*mockToplevel) UnsetFullscreen(client *Client)                                {}
 func (*mockToplevel) SetMinimized(client *Client)                                   {}
 
-type mockOutput struct {
-}
+type mockOutput struct{}
 
 func (output *mockOutput) Bind(client *Client, version uint32) {
 	fmt.Println("bind mockOutput")
 	make := C.CString("A monitor")
+	defer C.free(unsafe.Pointer(make))
 	res := client.getResource(output)
 	C.wl_output_send_geometry(res, 0, 0, 301, 170, 0, make, make, 0)
 	C.wl_output_send_mode(res, 0x1|0x2, 1920, 1080, 60000)
-	C.free(unsafe.Pointer(make))
 	C.wl_output_send_done(res)
 }
 
@@ -335,6 +335,7 @@ func (*mockDataDeviceManager) GetDataDevice(client *Client, id ObjectID, seat Se
 }
 
 func main() {
+	go http.ListenAndServe("localhost:6060", nil)
 	// egl.Init()
 	// gpBindWaylandDisplayWL = C.PFNEGLBINDWAYLANDDISPLAYWL(getProcAddr("eglBindWaylandDisplayWL"))
 

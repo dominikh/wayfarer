@@ -27,16 +27,24 @@ type EGL struct {
 	Config  egl.EGLConfig
 }
 
+type XSurface struct {
+	Surface *mockSurface
+	Damaged bool
+	Texture ogl.Texture
+
+	oldWidth  int32
+	oldHeight int32
+}
+
 type XGraphicsBackend struct {
 	X       *x11.Display
 	Window  x11.Window
 	EGL     EGL
 	Program ogl.Program
 
-	Surfaces []*mockSurface
+	Surfaces []*XSurface
 
 	WindowBlock *ShaderWindowBlock
-	tex         ogl.Texture
 }
 
 func NewXGraphicsBackend() (*XGraphicsBackend, error) {
@@ -143,14 +151,8 @@ func NewXGraphicsBackend() (*XGraphicsBackend, error) {
 
 	var block *ShaderWindowBlock
 	ubo = ogl.NewBuffer(int(unsafe.Sizeof(ShaderWindowBlock{})))
-	ubo.Bind(gl.UNIFORM_BUFFER, 1)
+	ubo.Bind(gl.SHADER_STORAGE_BUFFER, 1)
 	ubo.Map(&block)
-
-	tex := ogl.CreateTexture(gl.TEXTURE_2D)
-	gl.TextureParameterf(tex.Object, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-	gl.TextureParameterf(tex.Object, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-	gl.TextureParameteri(tex.Object, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-	gl.TextureParameteri(tex.Object, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 
 	return &XGraphicsBackend{
 		X:      dpy,
@@ -163,8 +165,43 @@ func NewXGraphicsBackend() (*XGraphicsBackend, error) {
 		},
 		Program:     prog,
 		WindowBlock: block,
-		tex:         tex,
 	}, nil
+}
+
+func (surface *XSurface) Initialize() {
+	if surface.Surface.state.buffer == nil {
+		return
+	}
+
+	buf := &SHMBuffer{C.wl_shm_buffer_get(surface.Surface.state.buffer)}
+	width := buf.Width()
+	height := buf.Height()
+
+	if surface.oldWidth == width && surface.oldHeight == height {
+		return
+	}
+
+	// XXX release old texture, if any
+	tex := ogl.CreateTexture(gl.TEXTURE_2D)
+	gl.TextureParameterf(tex.Object, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+	gl.TextureParameterf(tex.Object, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+	gl.TextureParameteri(tex.Object, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	gl.TextureParameteri(tex.Object, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	gl.TextureStorage2D(tex.Object, 1, gl.RGBA8, width, height)
+	gl.MakeTextureHandleResidentARB(tex.Handle())
+
+	surface.Texture = tex
+	surface.oldWidth = width
+	surface.oldHeight = height
+}
+
+func (backend *XGraphicsBackend) AddSurface(surface *mockSurface) {
+	log.Printf("AddSurface: %p", surface)
+	xsurface := &XSurface{
+		Surface: surface,
+		Damaged: true,
+	}
+	backend.Surfaces = append(backend.Surfaces, xsurface)
 }
 
 func (backend *XGraphicsBackend) Render() {
@@ -179,58 +216,62 @@ func (backend *XGraphicsBackend) Render() {
 	gl.Clear(gl.COLOR_BUFFER_BIT)
 	gl.Enable(gl.BLEND)
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+	gl.UseProgram(uint32(backend.Program))
 
 	for i, surface := range backend.Surfaces {
-		if surface.state.buffer == nil {
+		if surface.Surface.state.buffer == nil {
 			continue
 		}
-		buf := &SHMBuffer{C.wl_shm_buffer_get(surface.state.buffer)}
+
+		surface.Initialize()
+
+		buf := &SHMBuffer{C.wl_shm_buffer_get(surface.Surface.state.buffer)}
 		width := buf.Width()
 		height := buf.Height()
-		gl.TextureImage2DEXT(backend.tex.Object, gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.BGRA, gl.UNSIGNED_BYTE, buf.Data())
 
-		X := float32(50)
-		Y := float32(50)
+		if width == 0 || height == 0 {
+			continue
+		}
+
+		tex := surface.Texture
+		gl.TextureSubImage2D(tex.Object, 0, 0, 0, width, height, gl.BGRA, gl.UNSIGNED_BYTE, buf.Data())
+		backend.WindowBlock.Texture[i] = tex.Handle()
+
+		X := float32(20 * (i + 1))
+		Y := float32(20 * (i + 1))
 		W := float32(width)
 		H := float32(height)
 
-		i = 1
-		stack := 1.0 / -float32(i)
+		// stack := 1.0 / -float32(i)
+		stack := float32(0)
 		a := mgl32.Vec4{X, Y, stack, 1}
 		b := mgl32.Vec4{X, Y + H, stack, 1}
 		c := mgl32.Vec4{X + W, Y + H, stack, 1}
 		d := mgl32.Vec4{X + W, Y, stack, 1}
-		backend.WindowBlock.Rect = [6]mgl32.Vec4{
+		backend.WindowBlock.Rect[i] = [6]mgl32.Vec4{
 			a, b, c,
 			a, c, d,
 		}
-		//block.Texture = win.Texture.Handle()
-		gl.BindTextureUnit(0, backend.tex.Object)
-
-		gl.UseProgram(uint32(backend.Program))
-		gl.DrawArrays(gl.TRIANGLES, 0, 6)
-		fence := gl.FenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)
-		for gl.ClientWaitSync(fence, gl.SYNC_FLUSH_COMMANDS_BIT, uint64(1*time.Second)) == gl.TIMEOUT_EXPIRED {
-			log.Println("timeout")
-		}
 	}
 
+	gl.DrawArraysInstanced(gl.TRIANGLES, 0, 6, int32(len(backend.Surfaces)))
 	egl.SwapBuffers(backend.EGL.Display, backend.EGL.Surface)
 
 	for _, surface := range backend.Surfaces {
-		if surface.state.frameCallback != nil {
-			C.wl_callback_send_done(surface.state.frameCallback, C.uint(time.Now().UnixNano()/1e6))
-			C.wl_resource_destroy(surface.state.frameCallback)
-			surface.state.frameCallback = nil
+		if surface.Surface.state.frameCallback != nil {
+			C.wl_callback_send_done(surface.Surface.state.frameCallback, C.uint(time.Now().UnixNano()/1e6))
+			C.wl_resource_destroy(surface.Surface.state.frameCallback)
+			surface.Surface.state.frameCallback = nil
 		}
+		surface.Damaged = false
 	}
 }
 
 type Sampler2D = uint64
 
 type ShaderWindowBlock struct {
-	Rect    [6]mgl32.Vec4
-	Texture Sampler2D
+	Texture [9216]Sampler2D
+	Rect    [9216][6]mgl32.Vec4
 }
 
 type ShaderScreenBlock struct {
