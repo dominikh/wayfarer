@@ -172,9 +172,15 @@ func (*mockSurface) SetOpaqueRegion(client *Client, region Region) {}
 func (*mockSurface) SetInputRegion(client *Client, region Region)  {}
 func (surface *mockSurface) Commit(client *Client) {
 	if (surface.pending.changed & stateBuffer) != 0 {
+		if surface.state.buffer != nil {
+			C.wl_buffer_send_release(surface.state.buffer)
+		}
 		surface.state.buffer = surface.pending.buffer
 	}
 	if (surface.pending.changed & stateFrameCallback) != 0 {
+		if surface.state.frameCallback != nil {
+			C.wl_resource_destroy(surface.state.frameCallback)
+		}
 		surface.state.frameCallback = surface.pending.frameCallback
 	}
 	surface.pending.changed = 0
@@ -188,6 +194,7 @@ func (surface *mockSurface) Commit(client *Client) {
 	C.wl_array_init(array)
 	C.xdg_surface_send_configure(client.getResource(surface.toplevel.surface), 0)
 	C.xdg_toplevel_send_configure(client.getResource(surface.toplevel), width, height, array)
+	C.wl_array_release(array)
 	// C.wl_surface_send_enter(client.getResource(surface), client.getResource(surface.comp.outputs[0]))
 }
 func (*mockSurface) SetBufferTransform(client *Client, transform int32) {}
