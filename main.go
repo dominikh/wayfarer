@@ -165,7 +165,9 @@ func (surface *mockSurface) Attach(client *Client, buffer *C.struct_wl_resource,
 	surface.pending.buffer = buffer
 	surface.pending.changed |= stateBuffer
 }
-func (*mockSurface) Damage(client *Client, x, y, width, height int32) {}
+func (surface *mockSurface) Damage(client *Client, x, y, width, height int32) {
+	surface.comp.graphicsBackend.DamageSurface(surface)
+}
 func (surface *mockSurface) Frame(client *Client, callback *C.struct_wl_resource) {
 	surface.pending.frameCallback = callback
 	surface.pending.changed |= stateFrameCallback

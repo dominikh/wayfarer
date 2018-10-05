@@ -181,6 +181,10 @@ func (surface *XSurface) Initialize() {
 		return
 	}
 
+	if width == 0 || height == 0 {
+		return
+	}
+
 	// XXX release old texture, if any
 	tex := ogl.CreateTexture(gl.TEXTURE_2D)
 	gl.TextureParameterf(tex.Object, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
@@ -196,12 +200,20 @@ func (surface *XSurface) Initialize() {
 }
 
 func (backend *XGraphicsBackend) AddSurface(surface *mockSurface) {
-	log.Printf("AddSurface: %p", surface)
 	xsurface := &XSurface{
 		Surface: surface,
 		Damaged: true,
 	}
 	backend.Surfaces = append(backend.Surfaces, xsurface)
+}
+
+func (backend *XGraphicsBackend) DamageSurface(surface *mockSurface) {
+	for _, xsurface := range backend.Surfaces {
+		if xsurface.Surface == surface {
+			xsurface.Damaged = true
+			return
+		}
+	}
 }
 
 func (backend *XGraphicsBackend) Render() {
@@ -224,33 +236,30 @@ func (backend *XGraphicsBackend) Render() {
 		}
 
 		surface.Initialize()
+		if surface.Damaged {
+			buf := &SHMBuffer{C.wl_shm_buffer_get(surface.Surface.state.buffer)}
+			width := buf.Width()
+			height := buf.Height()
 
-		buf := &SHMBuffer{C.wl_shm_buffer_get(surface.Surface.state.buffer)}
-		width := buf.Width()
-		height := buf.Height()
+			tex := surface.Texture
+			gl.TextureSubImage2D(tex.Object, 0, 0, 0, width, height, gl.BGRA, gl.UNSIGNED_BYTE, buf.Data())
+			backend.WindowBlock.Texture[i] = tex.Handle()
 
-		if width == 0 || height == 0 {
-			continue
-		}
+			X := float32(20 * (i + 1))
+			Y := float32(20 * (i + 1))
+			W := float32(width)
+			H := float32(height)
 
-		tex := surface.Texture
-		gl.TextureSubImage2D(tex.Object, 0, 0, 0, width, height, gl.BGRA, gl.UNSIGNED_BYTE, buf.Data())
-		backend.WindowBlock.Texture[i] = tex.Handle()
-
-		X := float32(20 * (i + 1))
-		Y := float32(20 * (i + 1))
-		W := float32(width)
-		H := float32(height)
-
-		// stack := 1.0 / -float32(i)
-		stack := float32(0)
-		a := mgl32.Vec4{X, Y, stack, 1}
-		b := mgl32.Vec4{X, Y + H, stack, 1}
-		c := mgl32.Vec4{X + W, Y + H, stack, 1}
-		d := mgl32.Vec4{X + W, Y, stack, 1}
-		backend.WindowBlock.Rect[i] = [6]mgl32.Vec4{
-			a, b, c,
-			a, c, d,
+			// stack := 1.0 / -float32(i)
+			stack := float32(0)
+			a := mgl32.Vec4{X, Y, stack, 1}
+			b := mgl32.Vec4{X, Y + H, stack, 1}
+			c := mgl32.Vec4{X + W, Y + H, stack, 1}
+			d := mgl32.Vec4{X + W, Y, stack, 1}
+			backend.WindowBlock.Rect[i] = [6]mgl32.Vec4{
+				a, b, c,
+				a, c, d,
+			}
 		}
 	}
 
