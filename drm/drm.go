@@ -209,6 +209,16 @@ type (
 		Pitch  uint32
 		Size   uint64
 	}
+
+	ModeCrtc struct {
+		CrtcID uint32
+		FbID   uint32
+
+		X, Y uint32
+
+		GammaSize uint32
+		Mode      *ModeInfo
+	}
 )
 
 type ModeConnection uint32
@@ -466,6 +476,10 @@ func (hnd *Handle) CreateDumb(width, height, bpp uint32) ModeDumb {
 	}
 }
 
+func (hnd *Handle) DestroyDumb(handle uint32) {
+	hnd.ioctl(DRM_IOCTL_MODE_DESTROY_DUMB.value, unsafe.Pointer(&handle))
+}
+
 func (hnd *Handle) AddFB(width, height uint32, depth, bpp uint8, pitch, bo_handle uint32) uint32 {
 	var f drmModeFbCmd
 
@@ -479,6 +493,10 @@ func (hnd *Handle) AddFB(width, height uint32, depth, bpp uint8, pitch, bo_handl
 	hnd.ioctl(DRM_IOCTL_MODE_ADDFB.value, unsafe.Pointer(&f))
 	// XXX error handling
 	return f.fb_id
+}
+
+func (hnd *Handle) RmFB(fb uint32) {
+	hnd.ioctl(DRM_IOCTL_MODE_RMFB.value, unsafe.Pointer(&fb))
 }
 
 func (hnd *Handle) Mmap(handle uint32, size uint32) []byte {
@@ -524,8 +542,50 @@ func (hnd *Handle) SetCrtc(crtcID, bufferID uint32, x, y uint32, connectors []ui
 	// XXX error handling
 }
 
+func (hnd *Handle) Crtc(crtcID uint32) ModeCrtc {
+	var crtc drmModeCrtc
+	crtc.crtc_id = crtcID
+	hnd.ioctl(DRM_IOCTL_MODE_GETCRTC.value, unsafe.Pointer(&crtc))
+	// XXX error handling
+
+	out := ModeCrtc{
+		CrtcID:    crtc.crtc_id,
+		X:         crtc.x,
+		Y:         crtc.y,
+		FbID:      crtc.fb_id,
+		GammaSize: crtc.gamma_size,
+	}
+	if crtc.mode_valid != 0 {
+		out.Mode = &ModeInfo{
+			Clock:      crtc.mode.clock,
+			Hdisplay:   crtc.mode.hdisplay,
+			HsyncStart: crtc.mode.hsync_start,
+			HsyncEnd:   crtc.mode.hsync_end,
+			Htotal:     crtc.mode.htotal,
+			Hskew:      crtc.mode.hskew,
+			Vdisplay:   crtc.mode.vdisplay,
+			VsyncStart: crtc.mode.vsync_start,
+			VsyncEnd:   crtc.mode.vsync_end,
+			Vtotal:     crtc.mode.vtotal,
+			Vscan:      crtc.mode.vscan,
+
+			Vrefresh: crtc.mode.vrefresh,
+
+			Flags: crtc.mode.flags,
+			Type:  crtc.mode.typ,
+			Name:  str(crtc.mode.name[:]),
+		}
+	}
+
+	return out
+}
+
 func (hnd *Handle) SetMaster() {
 	hnd.ioctl(DRM_IOCTL_SET_MASTER.value, nil)
+}
+
+func (hnd *Handle) DropMaster() {
+	hnd.ioctl(DRM_IOCTL_DROP_MASTER.value, nil)
 }
 
 const (
@@ -593,6 +653,25 @@ var (
 	DRM_IOCTL_SET_MASTER = op{
 		code: 0x1E,
 	}
+	DRM_IOCTL_DROP_MASTER = op{
+		code: 0x1F,
+	}
+	DRM_IOCTL_MODE_RMFB = op{
+		// DRM_IOCTL_MODE_RMFB		DRM_IOWR(0xAF, unsigned int)
+		code: 0xAF,
+		sig:  opInOut,
+		typ:  uint32(0),
+	}
+	DRM_IOCTL_MODE_DESTROY_DUMB = op{
+		code: 0xB4,
+		sig:  opInOut,
+		typ:  uint32(0),
+	}
+	DRM_IOCTL_MODE_GETCRTC = op{
+		code: 0xA0,
+		sig:  opInOut,
+		typ:  drmModeCrtc{},
+	}
 )
 
 var ops = []*op{
@@ -605,6 +684,9 @@ var ops = []*op{
 	&DRM_IOCTL_MODE_MAP_DUMB,
 	&DRM_IOCTL_MODE_SETCRTC,
 	&DRM_IOCTL_SET_MASTER,
+	&DRM_IOCTL_DROP_MASTER,
+	&DRM_IOCTL_MODE_DESTROY_DUMB,
+	&DRM_IOCTL_MODE_GETCRTC,
 }
 
 func init() {
