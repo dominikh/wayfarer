@@ -141,9 +141,42 @@ type (
 		mode_valid uint32
 		mode       drmModeModeinfo
 	}
+
+	drmSetClientCap struct {
+		capability uint64
+		value      uint64
+	}
+
+	drmModeGetProperty struct {
+		values_ptr    uint64
+		enum_blob_ptr uint64
+
+		prop_id uint32
+		flags   uint32
+		name    [DRM_PROP_NAME_LEN]byte
+
+		count_values     uint32
+		count_enum_blobs uint32
+	}
+
+	drmModePropertyEnum struct {
+		value uint64
+		name  [DRM_PROP_NAME_LEN]byte
+	}
+
+	drmModeObjGetProperties struct {
+		props_ptr       uint64
+		prop_values_ptr uint64
+		count_props     uint32
+		obj_id          uint32
+		obj_type        uint32
+	}
 )
 
-const DRM_DISPLAY_MODE_LEN = 32
+const (
+	DRM_DISPLAY_MODE_LEN = 32
+	DRM_PROP_NAME_LEN    = 32
+)
 
 type (
 	ModeRes struct {
@@ -176,8 +209,6 @@ type (
 	}
 
 	ModeConnector struct {
-		Props           []uint32
-		PropValues      []uint64
 		Modes           []ModeInfo
 		Encoders        []uint32
 		EncoderID       uint32
@@ -187,6 +218,8 @@ type (
 		Connection      ModeConnection
 		Width, Height   uint32
 		Subpixel        uint32
+
+		Properties []Property
 	}
 
 	ModeEncoder struct {
@@ -197,6 +230,8 @@ type (
 
 		PossibleCrtcs  uint32
 		PossibleClones uint32
+
+		Properties []Property
 	}
 
 	ModeDumb struct {
@@ -218,6 +253,8 @@ type (
 
 		GammaSize uint32
 		Mode      *ModeInfo
+
+		Properties []Property
 	}
 )
 
@@ -401,13 +438,9 @@ retry:
 		out.ConnectorType = conn.connector_type
 		out.ConnectorTypeID = conn.connector_type_id
 
-		out.Props = make([]uint32, conn.count_props)
-		out.PropValues = make([]uint64, conn.count_props)
 		out.Modes = make([]ModeInfo, conn.count_modes)
 		out.Encoders = make([]uint32, conn.count_encoders)
 
-		copy(out.Props, (*[1 << 31]uint32)(unsafe.Pointer(uintptr(conn.props_ptr)))[:conn.count_props])
-		copy(out.PropValues, (*[1 << 31]uint64)(unsafe.Pointer(uintptr(conn.prop_values_ptr)))[:conn.count_props])
 		info := (*[1 << 31]drmModeModeinfo)(unsafe.Pointer(uintptr(conn.modes_ptr)))[:conn.count_modes]
 		for i := range info {
 			out.Modes[i] = ModeInfo{
@@ -435,6 +468,8 @@ retry:
 		free(unsafe.Pointer(uintptr(conn.modes_ptr)))
 		free(unsafe.Pointer(uintptr(conn.encoders_ptr)))
 
+		out.Properties = hnd.objectGetProperties(out.ConnectorID, DRM_MODE_OBJECT_CONNECTOR)
+
 		return out, nil
 	}
 }
@@ -449,12 +484,14 @@ func (hnd *Handle) Encoder(id uint32) (ModeEncoder, error) {
 	if r != 0 {
 		// XXX
 	}
+
 	return ModeEncoder{
 		EncoderID:      enc.encoder_id,
 		EncoderType:    enc.encoder_type,
 		CrtcID:         enc.crtc_id,
 		PossibleCrtcs:  enc.possible_crtcs,
 		PossibleClones: enc.possible_clones,
+		Properties:     hnd.objectGetProperties(enc.encoder_id, DRM_MODE_OBJECT_ENCODER),
 	}, nil
 }
 
@@ -549,11 +586,12 @@ func (hnd *Handle) Crtc(crtcID uint32) ModeCrtc {
 	// XXX error handling
 
 	out := ModeCrtc{
-		CrtcID:    crtc.crtc_id,
-		X:         crtc.x,
-		Y:         crtc.y,
-		FbID:      crtc.fb_id,
-		GammaSize: crtc.gamma_size,
+		CrtcID:     crtc.crtc_id,
+		X:          crtc.x,
+		Y:          crtc.y,
+		FbID:       crtc.fb_id,
+		GammaSize:  crtc.gamma_size,
+		Properties: hnd.objectGetProperties(crtc.crtc_id, DRM_MODE_OBJECT_CRTC),
 	}
 	if crtc.mode_valid != 0 {
 		out.Mode = &ModeInfo{
@@ -586,6 +624,133 @@ func (hnd *Handle) SetMaster() {
 
 func (hnd *Handle) DropMaster() {
 	hnd.ioctl(DRM_IOCTL_DROP_MASTER.value, nil)
+}
+
+func (hnd *Handle) SetClientCap(capability uint64, value uint64) {
+	req := drmSetClientCap{capability, value}
+	hnd.ioctl(DRM_IOCTL_SET_CLIENT_CAP.value, unsafe.Pointer(&req))
+}
+
+type Property struct {
+	Property PropertyType
+	Value    uint64
+}
+
+type PropertyType struct {
+	Name string
+	Type interface{}
+}
+
+type RangeProperty struct {
+	Min, Max uint64
+}
+
+type EnumProperty struct {
+	Enums []Enum
+}
+
+type BitflagProperty struct {
+	Enums []Enum
+}
+
+type Enum struct {
+	Name  string
+	Value uint64
+}
+
+func (hnd *Handle) getProperty(id uint32) PropertyType {
+	var prop drmModeGetProperty
+	prop.prop_id = id
+	hnd.ioctl(DRM_IOCTL_MODE_GETPROPERTY.value, unsafe.Pointer(&prop))
+	if prop.count_values > 0 {
+		prop.values_ptr = uint64(uintptr(malloc(uintptr(prop.count_values) * unsafe.Sizeof(uint64(0)))))
+		defer free(unsafe.Pointer(uintptr(prop.values_ptr)))
+	}
+	if prop.count_enum_blobs > 0 && (prop.flags&(DRM_MODE_PROP_ENUM|DRM_MODE_PROP_BITMASK)) != 0 {
+		prop.enum_blob_ptr = uint64(uintptr(malloc(uintptr(prop.count_enum_blobs) * unsafe.Sizeof(drmModePropertyEnum{}))))
+		defer free(unsafe.Pointer(uintptr(prop.enum_blob_ptr)))
+	}
+	if prop.count_enum_blobs > 0 && prop.flags&DRM_MODE_PROP_BLOB != 0 {
+		prop.values_ptr = uint64(uintptr(malloc(uintptr(prop.count_enum_blobs) * unsafe.Sizeof(uint32(0)))))
+		prop.enum_blob_ptr = uint64(uintptr(malloc(uintptr(prop.count_enum_blobs) * unsafe.Sizeof(uint32(0)))))
+		defer free(unsafe.Pointer(uintptr(prop.values_ptr)))
+		defer free(unsafe.Pointer(uintptr(prop.enum_blob_ptr)))
+	}
+	hnd.ioctl(DRM_IOCTL_MODE_GETPROPERTY.value, unsafe.Pointer(&prop))
+
+	var outEnums []Enum
+	if prop.count_enum_blobs > 0 && (prop.flags&(DRM_MODE_PROP_ENUM|DRM_MODE_PROP_BITMASK)) != 0 {
+		enums := (*[1 << 31]drmModePropertyEnum)(unsafe.Pointer(uintptr(prop.enum_blob_ptr)))[:prop.count_enum_blobs]
+		for _, enum := range enums {
+			outEnums = append(outEnums, Enum{str(enum.name[:]), enum.value})
+		}
+	}
+
+	if (prop.flags & DRM_MODE_PROP_RANGE) != 0 {
+		if prop.count_values != 2 {
+			panic("internal error: wrong assumption about range properties")
+		}
+		v := (*[2]uint64)(unsafe.Pointer(uintptr(prop.values_ptr)))
+		return PropertyType{
+			str(prop.name[:]),
+			RangeProperty{v[0], v[1]},
+		}
+	}
+
+	if (prop.flags & DRM_MODE_PROP_ENUM) != 0 {
+		enumProp := EnumProperty{}
+		enums := (*[1 << 31]drmModePropertyEnum)(unsafe.Pointer(uintptr(prop.enum_blob_ptr)))[:prop.count_enum_blobs]
+		for _, enum := range enums {
+			enumProp.Enums = append(enumProp.Enums, Enum{str(enum.name[:]), enum.value})
+		}
+		return PropertyType{
+			str(prop.name[:]),
+			enumProp,
+		}
+	}
+
+	if (prop.flags & DRM_MODE_PROP_ENUM) != 0 {
+		bitProp := BitflagProperty{}
+		enums := (*[1 << 31]drmModePropertyEnum)(unsafe.Pointer(uintptr(prop.enum_blob_ptr)))[:prop.count_enum_blobs]
+		for _, enum := range enums {
+			bitProp.Enums = append(bitProp.Enums, Enum{str(enum.name[:]), enum.value})
+		}
+		return PropertyType{
+			str(prop.name[:]),
+			bitProp,
+		}
+	}
+
+	if (prop.flags & DRM_MODE_PROP_BLOB) != 0 {
+		panic("not implemented")
+	}
+
+	panic("unreachable")
+}
+
+func (hnd *Handle) objectGetProperties(obj uint32, typ uint32) []Property {
+	var properties drmModeObjGetProperties
+	properties.obj_id = obj
+	properties.obj_type = typ
+	hnd.ioctl(DRM_IOCTL_MODE_OBJ_GETPROPERTIES.value, unsafe.Pointer(&properties))
+	properties.props_ptr = uint64(uintptr(malloc(uintptr(properties.count_props) * unsafe.Sizeof(uint32(0)))))
+	properties.prop_values_ptr = uint64(uintptr(malloc(uintptr(properties.count_props) * unsafe.Sizeof(uint32(0)))))
+	defer free(unsafe.Pointer(uintptr(properties.props_ptr)))
+	defer free(unsafe.Pointer(uintptr(properties.prop_values_ptr)))
+	hnd.ioctl(DRM_IOCTL_MODE_OBJ_GETPROPERTIES.value, unsafe.Pointer(&properties))
+	// XXX retry if count changed
+
+	props := (*[1 << 31]uint32)(unsafe.Pointer(uintptr(properties.props_ptr)))[:properties.count_props]
+	values := (*[1 << 31]uint32)(unsafe.Pointer(uintptr(properties.prop_values_ptr)))[:properties.count_props]
+
+	var out []Property
+	for i, prop := range props {
+		out = append(out, Property{
+			Property: hnd.getProperty(prop),
+			Value:    uint64(values[i]),
+		})
+	}
+	return out
 }
 
 const (
@@ -672,6 +837,21 @@ var (
 		sig:  opInOut,
 		typ:  drmModeCrtc{},
 	}
+	DRM_IOCTL_SET_CLIENT_CAP = op{
+		code: 0x0D,
+		sig:  opIn,
+		typ:  drmSetClientCap{},
+	}
+	DRM_IOCTL_MODE_GETPROPERTY = op{
+		code: 0xAA,
+		sig:  opInOut,
+		typ:  drmModeGetProperty{},
+	}
+	DRM_IOCTL_MODE_OBJ_GETPROPERTIES = op{
+		code: 0xB9,
+		sig:  opInOut,
+		typ:  drmModeObjGetProperties{},
+	}
 )
 
 var ops = []*op{
@@ -687,6 +867,9 @@ var ops = []*op{
 	&DRM_IOCTL_DROP_MASTER,
 	&DRM_IOCTL_MODE_DESTROY_DUMB,
 	&DRM_IOCTL_MODE_GETCRTC,
+	&DRM_IOCTL_SET_CLIENT_CAP,
+	&DRM_IOCTL_MODE_GETPROPERTY,
+	&DRM_IOCTL_MODE_OBJ_GETPROPERTIES,
 }
 
 func init() {
@@ -707,3 +890,26 @@ func init() {
 }
 
 const DRM_CAP_DUMB_BUFFER = 0x1
+
+const DRM_CLIENT_CAP_ATOMIC = 3
+
+const (
+	DRM_MODE_PROP_PENDING   = 1 << 0
+	DRM_MODE_PROP_RANGE     = 1 << 1
+	DRM_MODE_PROP_IMMUTABLE = 1 << 2
+	DRM_MODE_PROP_ENUM      = 1 << 3
+	DRM_MODE_PROP_BLOB      = 1 << 4
+	DRM_MODE_PROP_BITMASK   = 1 << 5
+)
+
+const (
+	DRM_MODE_OBJECT_CRTC      = 0xcccccccc
+	DRM_MODE_OBJECT_CONNECTOR = 0xc0c0c0c0
+	DRM_MODE_OBJECT_ENCODER   = 0xe0e0e0e0
+	DRM_MODE_OBJECT_MODE      = 0xdededede
+	DRM_MODE_OBJECT_PROPERTY  = 0xb0b0b0b0
+	DRM_MODE_OBJECT_FB        = 0xfbfbfbfb
+	DRM_MODE_OBJECT_BLOB      = 0xbbbbbbbb
+	DRM_MODE_OBJECT_PLANE     = 0xeeeeeeee
+	DRM_MODE_OBJECT_ANY       = 0
+)
