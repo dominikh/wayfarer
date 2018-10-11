@@ -1,9 +1,5 @@
 package main
 
-// #cgo pkg-config: wayland-server
-// #include <wayland-server.h>
-import "C"
-
 import (
 	"errors"
 	"fmt"
@@ -18,6 +14,7 @@ import (
 	"honnef.co/go/gl"
 	"honnef.co/go/newui/ogl"
 	"honnef.co/go/newui/x11"
+	"honnef.co/go/wayfarer/wayland"
 )
 
 type EGL struct {
@@ -173,7 +170,7 @@ func (surface *XSurface) Initialize() {
 		return
 	}
 
-	buf := &SHMBuffer{C.wl_shm_buffer_get(surface.Surface.state.buffer)}
+	buf := wayland.GetSHMBuffer(surface.Surface.state.buffer)
 	width := buf.Width()
 	height := buf.Height()
 
@@ -237,7 +234,7 @@ func (backend *XGraphicsBackend) Render() {
 
 		surface.Initialize()
 		if surface.Damaged {
-			buf := &SHMBuffer{C.wl_shm_buffer_get(surface.Surface.state.buffer)}
+			buf := wayland.GetSHMBuffer(surface.Surface.state.buffer)
 			width := buf.Width()
 			height := buf.Height()
 
@@ -268,8 +265,8 @@ func (backend *XGraphicsBackend) Render() {
 
 	for _, surface := range backend.Surfaces {
 		if surface.Surface.state.frameCallback != nil {
-			C.wl_callback_send_done(surface.Surface.state.frameCallback, C.uint(time.Now().UnixNano()/1e6))
-			C.wl_resource_destroy(surface.Surface.state.frameCallback)
+			surface.Surface.state.frameCallback.SendDone(time.Now())
+			surface.Surface.state.frameCallback.Destroy()
 			surface.Surface.state.frameCallback = nil
 		}
 		surface.Damaged = false

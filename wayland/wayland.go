@@ -1,14 +1,156 @@
-package main
+package wayland
 
 // #cgo pkg-config: wayland-server
 // #include <wayland-server.h>
 // #include <stdlib.h>
-// #include "xdg_shell_server.h"
 // #include "wayfarer.h"
 import "C"
 import (
+	"errors"
+	"time"
 	"unsafe"
 )
+
+var (
+	CompositorInterface        = &C.wl_compositor_interface
+	ShellInterface             = &C.wl_shell_interface
+	SeatInterface              = &C.wl_seat_interface
+	DataDeviceManagerInterface = &C.wl_data_device_manager_interface
+	OutputInterface            = &C.wl_output_interface
+)
+
+type ObjectID uint32
+
+type Display struct {
+	dpy *C.struct_wl_display
+}
+
+func (dpy *Display) CreateGlobal(obj Global, iface *C.struct_wl_interface, version int, fntable unsafe.Pointer) {
+	data := addGlobal(obj)
+	C.wl_global_create(dpy.dpy, iface, 1, unsafe.Pointer(data), (*[0]byte)(fntable))
+}
+
+func (dpy *Display) CreateCompositorGlobal(comp Compositor) {
+	dpy.CreateGlobal(comp, CompositorInterface, 1, C.wayfarerCompositorBind)
+}
+
+func (dpy *Display) CreateShellGlobal(shell Shell) {
+	dpy.CreateGlobal(shell, ShellInterface, 1, C.wayfarerShellBind)
+}
+
+func (dpy *Display) CreateSeatGlobal(seat Seat) {
+	dpy.CreateGlobal(seat, SeatInterface, 5, C.wayfarerSeatBind)
+}
+
+func (dpy *Display) CreateDataDeviceManagerGlobal(ddm DataDeviceManager) {
+	dpy.CreateGlobal(ddm, DataDeviceManagerInterface, 1, C.wayfarerDataDeviceManagerBind)
+}
+
+func (dpy *Display) CreateOutputGlobal(output Output) {
+	dpy.CreateGlobal(output, OutputInterface, 2, C.wayfarerOutputBind)
+}
+
+func (dpy *Display) InitShm() {
+	C.wl_display_init_shm(dpy.dpy)
+}
+
+func (dpy *Display) EventLoop() *EventLoop {
+	return &EventLoop{C.wl_display_get_event_loop(dpy.dpy)}
+}
+
+func (dpy *Display) FlushClients() {
+	C.wl_display_flush_clients(dpy.dpy)
+}
+
+func NewDisplay() (*Display, error) {
+	dpy := C.wl_display_create()
+	if dpy == nil {
+		return nil, errors.New("could not create Wayland display")
+	}
+	return &Display{
+		dpy: dpy,
+	}, nil
+}
+
+func (dpy *Display) Run() { C.wl_display_run(dpy.dpy) }
+
+func (dpy *Display) Destroy() {
+	C.wl_display_destroy(dpy.dpy)
+	dpy.dpy = nil
+}
+
+func (dpy *Display) Serial() uint32     { return uint32(C.wl_display_get_serial(dpy.dpy)) }
+func (dpy *Display) NextSerial() uint32 { return uint32(C.wl_display_next_serial(dpy.dpy)) }
+func (dpy *Display) DestroyClients()    { C.wl_display_destroy_clients(dpy.dpy) }
+
+func (dpy *Display) AddSocketFd(fd int) (ok bool) {
+	return C.wl_display_add_socket_fd(dpy.dpy, C.int(fd)) == 0
+}
+
+func (dpy *Display) AddSocket(path string) (ok bool) {
+	var cPath *C.char
+	if path != "" {
+		cPath = C.CString(path)
+		defer C.free(unsafe.Pointer(cPath))
+	}
+	return C.wl_display_add_socket(dpy.dpy, cPath) == 0
+}
+
+func (dpy *Display) AddSocketAuto() (string, bool) {
+	c := C.wl_display_add_socket_auto(dpy.dpy)
+	if c == nil {
+		return "", false
+	}
+	return C.GoString(c), true
+}
+
+func (dpy *Display) AddShmFormat(format uint32) *uint32 {
+	return (*uint32)(C.wl_display_add_shm_format(dpy.dpy, C.uint32_t(format)))
+}
+
+type EventLoop struct {
+	evloop *C.struct_wl_event_loop
+}
+
+func NewEventLoop() *EventLoop { return &EventLoop{evloop: C.wl_event_loop_create()} }
+func (evloop *EventLoop) Destroy() {
+	C.wl_event_loop_destroy(evloop.evloop)
+	evloop.evloop = nil
+}
+func (evloop *EventLoop) DispatchIdle() { C.wl_event_loop_dispatch_idle(evloop.evloop) }
+func (evloop *EventLoop) Dispatch(timeout time.Duration) (ok bool) {
+	return C.wl_event_loop_dispatch(evloop.evloop, C.int(timeout/time.Millisecond)) == 0
+}
+func (evloop *EventLoop) Fd() int { return int(C.wl_event_loop_get_fd(evloop.evloop)) }
+
+type Buffer struct {
+	res *Resource
+}
+
+func (buf *Buffer) Release() {
+	C.wl_buffer_send_release(buf.res.res)
+	buf.res = nil
+}
+
+type Callback struct {
+	res *Resource
+}
+
+func (cb *Callback) SendDone(ts time.Time) {
+	C.wl_callback_send_done(cb.res.res, C.uint(ts.UnixNano()/1e6))
+}
+
+func (cb *Callback) Destroy() {
+	cb.res.Destroy()
+}
+
+type Resource struct {
+	res *C.struct_wl_resource
+}
+
+func (res *Resource) Destroy() {
+	C.wl_resource_destroy(res.res)
+}
 
 type Global interface {
 	Bind(client *Client, version uint32)
@@ -48,8 +190,8 @@ type DataDeviceManager interface {
 }
 
 type DataDevice interface {
-	StartDrag(client *Client, source, origin, icon *C.struct_wl_resource, serial uint32)
-	SetSelection(client *Client, source *C.struct_wl_resource, serial uint32)
+	StartDrag(client *Client, source, origin, icon *Resource, serial uint32)
+	SetSelection(client *Client, source *Resource, serial uint32)
 	Release(client *Client)
 }
 
@@ -65,55 +207,11 @@ type Output interface {
 	Release(client *Client)
 }
 
-type XdgWmBase interface {
-	Global
-
-	Destroy(client *Client)
-	CreatePositioner(client *Client, id ObjectID) XDGPositioner
-	GetXDGSurface(client *Client, id ObjectID, surface Surface) XDGSurface
-	Pong(client *Client, serial uint32)
-}
-
-type XDGPositioner interface {
-	Destroy(client *Client)
-	SetSize(client *Client, width, height int32)
-	SetAnchorRect(client *Client, x, y, width, height int32)
-	SetAnchor(client *Client, anchor uint32)
-	SetGravity(client *Client, gravity uint32)
-	SetConstraintAdjustment(client *Client, constraintAdjustment uint32)
-	SetOffset(client *Client, x, y int32)
-}
-
-type XDGSurface interface {
-	Destroy(client *Client)
-	GetToplevel(client *Client, id ObjectID) XDGToplevel
-	GetPopup(client *Client, id ObjectID, parent *C.struct_wl_resource, positioner XDGPositioner)
-	SetWindowGeometry(client *Client, x, y, width, height int32)
-	AckConfigure(client *Client, serial uint32)
-}
-
-type XDGToplevel interface {
-	Destroy(client *Client)
-	SetParent(client *Client, parent *C.struct_wl_resource)
-	SetTitle(client *Client, title string)
-	SetAppID(client *Client, app_id string)
-	ShowWindowMenu(client *Client, seat Seat, serial uint32, x, y int32)
-	Move(client *Client, seat Seat, serial uint32)
-	Resize(client *Client, seat Seat, serial uint32, edges uint32)
-	SetMaxSize(client *Client, width, height int32)
-	SetMinSize(client *Client, width, height int32)
-	SetMaximized(client *Client)
-	UnsetMaximized(client *Client)
-	SetFullscreen(client *Client, output *C.struct_wl_resource)
-	UnsetFullscreen(client *Client)
-	SetMinimized(client *Client)
-}
-
 type Surface interface {
 	Destroy(client *Client)
-	Attach(client *Client, buffer *C.struct_wl_resource, x, y int32)
+	Attach(client *Client, buffer *Buffer, x, y int32)
 	Damage(client *Client, x, y, width, height int32)
-	Frame(client *Client, callback *C.struct_wl_resource)
+	Frame(client *Client, callback *Callback)
 	SetOpaqueRegion(client *Client, region Region)
 	SetInputRegion(client *Client, region Region)
 	Commit(client *Client)
@@ -149,6 +247,41 @@ func getClient(client *C.struct_wl_client) *Client {
 	return c
 }
 
+func (c *Client) SeatSendCapabilities(seat Seat, cap uint) {
+	C.wl_seat_send_capabilities(c.getResource(seat), C.uint(cap))
+}
+
+func (c *Client) SeatSendName(seat Seat, name string) {
+	cName := C.CString(name)
+	defer C.free(unsafe.Pointer(cName))
+	C.wl_seat_send_name(c.getResource(seat), cName)
+}
+
+func (c *Client) OutputSendGeometry(output Output, x, y, physWidth, physHeight, subpixel int32, make, model string, transform int32) {
+	cMake := C.CString(make)
+	cModel := C.CString(model)
+	defer C.free(unsafe.Pointer(cMake))
+	defer C.free(unsafe.Pointer(cModel))
+	C.wl_output_send_geometry(
+		c.getResource(output),
+		C.int32_t(x),
+		C.int32_t(y),
+		C.int32_t(physWidth),
+		C.int32_t(physHeight),
+		C.int32_t(subpixel),
+		cMake,
+		cModel,
+		C.int32_t(transform))
+}
+
+func (c *Client) OutputSendMode(output Output, flags uint32, width, height, refresh int32) {
+	C.wl_output_send_mode(c.getResource(output), C.uint32_t(flags), C.int32_t(width), C.int32_t(height), C.int32_t(refresh))
+}
+
+func (c *Client) OutputSendDone(output Output) {
+	C.wl_output_send_done(c.getResource(output))
+}
+
 func (c *Client) getObject(id uint32) interface{} {
 	return c.objects[id]
 }
@@ -179,6 +312,10 @@ func addGlobal(obj Global) uintptr {
 
 type SHMBuffer struct {
 	buf *C.struct_wl_shm_buffer
+}
+
+func GetSHMBuffer(buf *Buffer) *SHMBuffer {
+	return &SHMBuffer{C.wl_shm_buffer_get(buf.res.res)}
 }
 
 const (
@@ -386,40 +523,6 @@ func wayfarerShellBind(client *C.struct_wl_client, data unsafe.Pointer, version 
 	gclient.addResource(&C.wl_shell_interface, 1, uint32(id), unsafe.Pointer(&C.wayfarerShellInterface), shell)
 }
 
-//export wayfarerXdgWmBaseDestroy
-func wayfarerXdgWmBaseDestroy(client *C.struct_wl_client, resource *C.struct_wl_resource) {
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XdgWmBase).Destroy(gclient)
-}
-
-//export wayfarerXdgWmBaseCreatePositioner
-func wayfarerXdgWmBaseCreatePositioner(client *C.struct_wl_client, resource *C.struct_wl_resource, id C.uint32_t) {
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XdgWmBase).CreatePositioner(gclient, ObjectID(id))
-	panic("not implemented")
-}
-
-//export wayfarerXdgWmBaseGetXDGSurface
-func wayfarerXdgWmBaseGetXDGSurface(client *C.struct_wl_client, resource *C.struct_wl_resource, id C.uint32_t, surface *C.struct_wl_resource) {
-	gclient := getClient(client)
-	gsurface := gclient.getObject(uint32(surface.object.id)).(Surface)
-	xdgSurface := gclient.getObject(uint32(resource.object.id)).(XdgWmBase).GetXDGSurface(gclient, ObjectID(id), gsurface)
-	gclient.addResource(&C.xdg_surface_interface, 1, uint32(id), unsafe.Pointer(&C.wayfarerXDGSurfaceInterface), xdgSurface)
-}
-
-//export wayfarerXdgWmBasePong
-func wayfarerXdgWmBasePong(client *C.struct_wl_client, resource *C.struct_wl_resource, serial C.uint32_t) {
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XdgWmBase).Pong(gclient, uint32(serial))
-}
-
-//export wayfarerXdgWmBaseBind
-func wayfarerXdgWmBaseBind(client *C.struct_wl_client, data unsafe.Pointer, version C.uint32_t, id C.uint32_t) {
-	gclient := getClient(client)
-	base := getGlobalData(uintptr(data))
-	gclient.addResource(&C.xdg_wm_base_interface, 2, uint32(id), unsafe.Pointer(&C.wayfarerXdgWmBaseInterface), base)
-}
-
 //export wayfarerSeatBind
 func wayfarerSeatBind(client *C.struct_wl_client, data unsafe.Pointer, version C.uint32_t, id C.uint32_t) {
 	gclient := getClient(client)
@@ -437,7 +540,7 @@ func wayfarerSurfaceDestroy(client *C.struct_wl_client, resource *C.struct_wl_re
 //export wayfarerSurfaceAttach
 func wayfarerSurfaceAttach(client *C.struct_wl_client, resource *C.struct_wl_resource, buffer *C.struct_wl_resource, x C.int32_t, y C.int32_t) {
 	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(Surface).Attach(gclient, buffer, int32(x), int32(y))
+	gclient.getObject(uint32(resource.object.id)).(Surface).Attach(gclient, &Buffer{&Resource{buffer}}, int32(x), int32(y))
 }
 
 //export wayfarerSurfaceDamage
@@ -449,7 +552,7 @@ func wayfarerSurfaceDamage(client *C.struct_wl_client, resource *C.struct_wl_res
 //export wayfarerSurfaceFrame
 func wayfarerSurfaceFrame(client *C.struct_wl_client, resource *C.struct_wl_resource, callback C.uint32_t) {
 	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(Surface).Frame(gclient, C.wl_resource_create(client, &C.wl_callback_interface, 1, callback))
+	gclient.getObject(uint32(resource.object.id)).(Surface).Frame(gclient, &Callback{&Resource{C.wl_resource_create(client, &C.wl_callback_interface, 1, callback)}})
 }
 
 //export wayfarerSurfaceSetOpaqueRegion
@@ -500,168 +603,4 @@ func wayfarerRegionAdd(client *C.struct_wl_client, resource *C.struct_wl_resourc
 func wayfarerRegionSubtract(client *C.struct_wl_client, resource *C.struct_wl_resource, x C.int32_t, y C.int32_t, width C.int32_t, height C.int32_t) {
 	gclient := getClient(client)
 	gclient.getObject(uint32(resource.object.id)).(Region).Subtract(gclient, int32(x), int32(y), int32(width), int32(height))
-}
-
-//export wayfarerXDGPositionerDestroy
-func wayfarerXDGPositionerDestroy(client *C.struct_wl_client, resource *C.struct_wl_resource) {
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XDGPositioner).Destroy(gclient)
-}
-
-//export wayfarerXDGPositionerSetSize
-func wayfarerXDGPositionerSetSize(client *C.struct_wl_client, resource *C.struct_wl_resource, width, height C.int32_t) {
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XDGPositioner).SetSize(gclient, int32(width), int32(height))
-}
-
-//export wayfarerXDGPositionerSetAnchorRect
-func wayfarerXDGPositionerSetAnchorRect(client *C.struct_wl_client, resource *C.struct_wl_resource, x, y, width, height C.int32_t) {
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XDGPositioner).SetAnchorRect(gclient, int32(x), int32(y), int32(width), int32(height))
-}
-
-//export wayfarerXDGPositionerSetAnchor
-func wayfarerXDGPositionerSetAnchor(client *C.struct_wl_client, resource *C.struct_wl_resource, anchor C.uint32_t) {
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XDGPositioner).SetAnchor(gclient, uint32(anchor))
-}
-
-//export wayfarerXDGPositionerSetGravity
-func wayfarerXDGPositionerSetGravity(client *C.struct_wl_client, resource *C.struct_wl_resource, gravity C.uint32_t) {
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XDGPositioner).SetGravity(gclient, uint32(gravity))
-}
-
-//export wayfarerXDGPositionerSetConstraintAdjustment
-func wayfarerXDGPositionerSetConstraintAdjustment(client *C.struct_wl_client, resource *C.struct_wl_resource, constraintAdjustment C.uint32_t) {
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XDGPositioner).SetConstraintAdjustment(gclient, uint32(constraintAdjustment))
-}
-
-//export wayfarerXDGPositionerSetOffset
-func wayfarerXDGPositionerSetOffset(client *C.struct_wl_client, resource *C.struct_wl_resource, x, y C.int32_t) {
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XDGPositioner).SetOffset(gclient, int32(x), int32(y))
-}
-
-//export wayfarerXDGSurfaceDestroy
-func wayfarerXDGSurfaceDestroy(client *C.struct_wl_client, resource *C.struct_wl_resource) {
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XDGSurface).Destroy(gclient)
-}
-
-//export wayfarerXDGSurfaceGetToplevel
-func wayfarerXDGSurfaceGetToplevel(client *C.struct_wl_client, resource *C.struct_wl_resource, id C.uint32_t) {
-	gclient := getClient(client)
-	toplevel := gclient.getObject(uint32(resource.object.id)).(XDGSurface).GetToplevel(gclient, ObjectID(id))
-	gclient.addResource(&C.xdg_toplevel_interface, 1, uint32(id), unsafe.Pointer(&C.wayfarerXDGToplevelInterface), toplevel)
-}
-
-//export wayfarerXDGSurfaceGetPopup
-func wayfarerXDGSurfaceGetPopup(client *C.struct_wl_client, resource *C.struct_wl_resource, id C.uint32_t, parent *C.struct_wl_resource, positioner *C.struct_wl_resource) {
-	gclient := getClient(client)
-	gpositioner := gclient.getObject(uint32(positioner.object.id)).(XDGPositioner)
-	gclient.getObject(uint32(resource.object.id)).(XDGSurface).GetPopup(gclient, ObjectID(id), parent, gpositioner)
-	panic("not implemented")
-}
-
-//export wayfarerXDGSurfaceSetWindowGeometry
-func wayfarerXDGSurfaceSetWindowGeometry(client *C.struct_wl_client, resource *C.struct_wl_resource, x, y, width, height C.int32_t) {
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XDGSurface).SetWindowGeometry(gclient, int32(x), int32(y), int32(width), int32(height))
-}
-
-//export wayfarerXDGSurfaceAckConfigure
-func wayfarerXDGSurfaceAckConfigure(client *C.struct_wl_client, resource *C.struct_wl_resource, serial C.uint32_t) {
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XDGSurface).AckConfigure(gclient, uint32(serial))
-}
-
-//export wayfarerXDGToplevelDestroy
-func wayfarerXDGToplevelDestroy(client *C.struct_wl_client, resource *C.struct_wl_resource) {
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XDGToplevel).Destroy(gclient)
-}
-
-//export wayfarerXDGToplevelSetParent
-func wayfarerXDGToplevelSetParent(client *C.struct_wl_client, resource *C.struct_wl_resource, parent *C.struct_wl_resource) {
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XDGToplevel).SetParent(gclient, parent)
-}
-
-//export wayfarerXDGToplevelSetTitle
-func wayfarerXDGToplevelSetTitle(client *C.struct_wl_client, resource *C.struct_wl_resource, title *C.char) {
-	// TODO(dh): are we responsible for freeing the *C.char?
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XDGToplevel).SetTitle(gclient, C.GoString(title))
-}
-
-//export wayfarerXDGToplevelSetAppID
-func wayfarerXDGToplevelSetAppID(client *C.struct_wl_client, resource *C.struct_wl_resource, app_id *C.char) {
-	// TODO(dh): are we responsible for freeing the *C.char?
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XDGToplevel).SetAppID(gclient, C.GoString(app_id))
-}
-
-//export wayfarerXDGToplevelShowWindowMenu
-func wayfarerXDGToplevelShowWindowMenu(client *C.struct_wl_client, resource *C.struct_wl_resource, seat *C.struct_wl_resource, serial C.uint32_t, x, y C.int32_t) {
-	gclient := getClient(client)
-	gseat := gclient.getObject(uint32(seat.object.id)).(Seat)
-	gclient.getObject(uint32(resource.object.id)).(XDGToplevel).ShowWindowMenu(gclient, gseat, uint32(serial), int32(x), int32(y))
-}
-
-//export wayfarerXDGToplevelMove
-func wayfarerXDGToplevelMove(client *C.struct_wl_client, resource *C.struct_wl_resource, seat *C.struct_wl_resource, serial C.uint32_t) {
-	gclient := getClient(client)
-	gseat := gclient.getObject(uint32(seat.object.id)).(Seat)
-	gclient.getObject(uint32(resource.object.id)).(XDGToplevel).Move(gclient, gseat, uint32(serial))
-}
-
-//export wayfarerXDGToplevelResize
-func wayfarerXDGToplevelResize(client *C.struct_wl_client, resource *C.struct_wl_resource, seat *C.struct_wl_resource, serial C.uint32_t, edges C.uint32_t) {
-	gclient := getClient(client)
-	gseat := gclient.getObject(uint32(seat.object.id)).(Seat)
-	gclient.getObject(uint32(resource.object.id)).(XDGToplevel).Resize(gclient, gseat, uint32(serial), uint32(edges))
-}
-
-//export wayfarerXDGToplevelSetMaxSize
-func wayfarerXDGToplevelSetMaxSize(client *C.struct_wl_client, resource *C.struct_wl_resource, width, height C.int32_t) {
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XDGToplevel).SetMaxSize(gclient, int32(width), int32(height))
-}
-
-//export wayfarerXDGToplevelSetMinSize
-func wayfarerXDGToplevelSetMinSize(client *C.struct_wl_client, resource *C.struct_wl_resource, width, height C.int32_t) {
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XDGToplevel).SetMinSize(gclient, int32(width), int32(height))
-}
-
-//export wayfarerXDGToplevelSetMaximized
-func wayfarerXDGToplevelSetMaximized(client *C.struct_wl_client, resource *C.struct_wl_resource) {
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XDGToplevel).SetMaximized(gclient)
-}
-
-//export wayfarerXDGToplevelUnsetMaximized
-func wayfarerXDGToplevelUnsetMaximized(client *C.struct_wl_client, resource *C.struct_wl_resource) {
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XDGToplevel).UnsetMaximized(gclient)
-}
-
-//export wayfarerXDGToplevelSetFullscreen
-func wayfarerXDGToplevelSetFullscreen(client *C.struct_wl_client, resource *C.struct_wl_resource, output *C.struct_wl_resource) {
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XDGToplevel).SetFullscreen(gclient, output)
-}
-
-//export wayfarerXDGToplevelUnsetFullscreen
-func wayfarerXDGToplevelUnsetFullscreen(client *C.struct_wl_client, resource *C.struct_wl_resource) {
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XDGToplevel).UnsetFullscreen(gclient)
-}
-
-//export wayfarerXDGToplevelSetMinimized
-func wayfarerXDGToplevelSetMinimized(client *C.struct_wl_client, resource *C.struct_wl_resource) {
-	gclient := getClient(client)
-	gclient.getObject(uint32(resource.object.id)).(XDGToplevel).SetMinimized(gclient)
 }

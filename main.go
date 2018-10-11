@@ -1,100 +1,30 @@
 package main
 
-// #cgo pkg-config: wayland-server
+// #cgo pkg-config: egl
 // #include <EGL/egl.h>
 // #include <wayland-server.h>
 // #include <stdlib.h>
-// #include "xdg_shell_server.h"
-// #include "wayfarer.h"
 // typedef EGLBoolean (EGLAPIENTRYP PFNEGLBINDWAYLANDDISPLAYWL) (EGLDisplay dpy, struct wl_display *display);
 // static EGLBoolean eglBindWaylandDisplayWL(PFNEGLBINDWAYLANDDISPLAYWL fnptr, EGLDisplay dpy, struct wl_display *display) {
 //   return (*fnptr)(dpy, display);
 // }
 import "C"
 import (
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
-	"time"
 	"unsafe"
 
 	"github.com/BurntSushi/xgb"
 	"honnef.co/go/egl"
+	"honnef.co/go/wayfarer/wayland"
 )
 
-type ObjectID uint32
-
 type Server struct {
-	Display    *Display
-	Compositor Compositor
+	Display    *wayland.Display
+	Compositor wayland.Compositor
 }
-
-type Display struct {
-	dpy *C.struct_wl_display
-}
-
-func NewDisplay() (*Display, error) {
-	dpy := C.wl_display_create()
-	if dpy == nil {
-		return nil, errors.New("could not create Wayland display")
-	}
-	return &Display{
-		dpy: dpy,
-	}, nil
-}
-
-func (dpy *Display) Run() { C.wl_display_run(dpy.dpy) }
-
-func (dpy *Display) Destroy() {
-	C.wl_display_destroy(dpy.dpy)
-	dpy.dpy = nil
-}
-
-func (dpy *Display) Serial() uint32     { return uint32(C.wl_display_get_serial(dpy.dpy)) }
-func (dpy *Display) NextSerial() uint32 { return uint32(C.wl_display_next_serial(dpy.dpy)) }
-func (dpy *Display) DestroyClients()    { C.wl_display_destroy_clients(dpy.dpy) }
-
-func (dpy *Display) AddSocketFd(fd int) (ok bool) {
-	return C.wl_display_add_socket_fd(dpy.dpy, C.int(fd)) == 0
-}
-
-func (dpy *Display) AddSocket(path string) (ok bool) {
-	var cPath *C.char
-	if path != "" {
-		cPath = C.CString(path)
-		defer C.free(unsafe.Pointer(cPath))
-	}
-	return C.wl_display_add_socket(dpy.dpy, cPath) == 0
-}
-
-func (dpy *Display) AddSocketAuto() (string, bool) {
-	c := C.wl_display_add_socket_auto(dpy.dpy)
-	if c == nil {
-		return "", false
-	}
-	return C.GoString(c), true
-}
-
-func (dpy *Display) AddShmFormat(format uint32) *uint32 {
-	return (*uint32)(C.wl_display_add_shm_format(dpy.dpy, C.uint32_t(format)))
-}
-
-type EventLoop struct {
-	evloop *C.struct_wl_event_loop
-}
-
-func NewEventLoop() *EventLoop { return &EventLoop{evloop: C.wl_event_loop_create()} }
-func (evloop *EventLoop) Destroy() {
-	C.wl_event_loop_destroy(evloop.evloop)
-	evloop.evloop = nil
-}
-func (evloop *EventLoop) DispatchIdle() { C.wl_event_loop_dispatch_idle(evloop.evloop) }
-func (evloop *EventLoop) Dispatch(timeout time.Duration) (ok bool) {
-	return C.wl_event_loop_dispatch(evloop.evloop, C.int(timeout/time.Millisecond)) == 0
-}
-func (evloop *EventLoop) Fd() int { return int(C.wl_event_loop_get_fd(evloop.evloop)) }
 
 func getProcAddr(name string) unsafe.Pointer {
 	c := C.CString(name)
@@ -110,36 +40,6 @@ var (
 	gpBindWaylandDisplayWL C.PFNEGLBINDWAYLANDDISPLAYWL
 )
 
-func (dpy *Display) CreateCompositorGlobal(comp Compositor) {
-	data := addGlobal(comp)
-	C.wl_global_create(dpy.dpy, &C.wl_compositor_interface, 1, unsafe.Pointer(data), (*[0]byte)(C.wayfarerCompositorBind))
-}
-
-func (dpy *Display) CreateShellGlobal(shell Shell) {
-	data := addGlobal(shell)
-	C.wl_global_create(dpy.dpy, &C.wl_shell_interface, 1, unsafe.Pointer(data), (*[0]byte)(C.wayfarerShellBind))
-}
-
-func (dpy *Display) CreateXdgWmBaseGlobal(shell XdgWmBase) {
-	data := addGlobal(shell)
-	C.wl_global_create(dpy.dpy, &C.xdg_wm_base_interface, 2, unsafe.Pointer(data), (*[0]byte)(C.wayfarerXdgWmBaseBind))
-}
-
-func (dpy *Display) CreateSeatGlobal(seat Seat) {
-	data := addGlobal(seat)
-	C.wl_global_create(dpy.dpy, &C.wl_seat_interface, 5, unsafe.Pointer(data), (*[0]byte)(C.wayfarerSeatBind))
-}
-
-func (dpy *Display) CreateDataDeviceManagerGlobal(ddm DataDeviceManager) {
-	data := addGlobal(ddm)
-	C.wl_global_create(dpy.dpy, &C.wl_data_device_manager_interface, 1, unsafe.Pointer(data), (*[0]byte)(C.wayfarerDataDeviceManagerBind))
-}
-
-func (dpy *Display) CreateOutputGlobal(output Output) {
-	data := addGlobal(output)
-	C.wl_global_create(dpy.dpy, &C.wl_output_interface, 2, unsafe.Pointer(data), (*[0]byte)(C.wayfarerOutputBind))
-}
-
 const (
 	stateBuffer = 1 << iota
 	stateFrameCallback
@@ -147,8 +47,8 @@ const (
 
 type surfaceState struct {
 	changed       uint
-	buffer        *C.struct_wl_resource
-	frameCallback *C.struct_wl_resource
+	buffer        *wayland.Buffer
+	frameCallback *wayland.Callback
 }
 
 type mockSurface struct {
@@ -159,47 +59,43 @@ type mockSurface struct {
 	pending surfaceState
 }
 
-func (*mockSurface) Destroy(client *Client) {}
-func (surface *mockSurface) Attach(client *Client, buffer *C.struct_wl_resource, x, y int32) {
+func (*mockSurface) Destroy(client *wayland.Client) {}
+func (surface *mockSurface) Attach(client *wayland.Client, buffer *wayland.Buffer, x, y int32) {
 	// TODO handle x, y
 	surface.pending.buffer = buffer
 	surface.pending.changed |= stateBuffer
 }
-func (surface *mockSurface) Damage(client *Client, x, y, width, height int32) {
+func (surface *mockSurface) Damage(client *wayland.Client, x, y, width, height int32) {
 	surface.comp.graphicsBackend.DamageSurface(surface)
 }
-func (surface *mockSurface) Frame(client *Client, callback *C.struct_wl_resource) {
+func (surface *mockSurface) Frame(client *wayland.Client, callback *wayland.Callback) {
 	surface.pending.frameCallback = callback
 	surface.pending.changed |= stateFrameCallback
 }
-func (*mockSurface) SetOpaqueRegion(client *Client, region Region) {}
-func (*mockSurface) SetInputRegion(client *Client, region Region)  {}
-func (surface *mockSurface) Commit(client *Client) {
+func (*mockSurface) SetOpaqueRegion(client *wayland.Client, region wayland.Region) {}
+func (*mockSurface) SetInputRegion(client *wayland.Client, region wayland.Region)  {}
+func (surface *mockSurface) Commit(client *wayland.Client) {
 	if (surface.pending.changed & stateBuffer) != 0 {
 		if surface.state.buffer != nil {
-			C.wl_buffer_send_release(surface.state.buffer)
+			surface.state.buffer.Release()
 		}
 		surface.state.buffer = surface.pending.buffer
 	}
 	if (surface.pending.changed & stateFrameCallback) != 0 {
 		if surface.state.frameCallback != nil {
-			C.wl_resource_destroy(surface.state.frameCallback)
+			surface.state.frameCallback.Destroy()
 		}
 		surface.state.frameCallback = surface.pending.frameCallback
 	}
 	surface.pending.changed = 0
 
-	var width, height C.int32_t
+	var width, height int
 
-	array := (*C.struct_wl_array)(C.malloc(C.ulong(unsafe.Sizeof(C.struct_wl_array{}))))
-	C.wl_array_init(array)
-	C.xdg_surface_send_configure(client.getResource(surface.toplevel.surface), 0)
-	C.xdg_toplevel_send_configure(client.getResource(surface.toplevel), width, height, array)
-	C.wl_array_release(array)
-	// C.wl_surface_send_enter(client.getResource(surface), client.getResource(surface.comp.outputs[0]))
+	client.XDGSurfaceSendConfigure(surface.toplevel.surface, 0)
+	client.XDGToplevelSendConfigure(surface.toplevel, width, height, nil)
 }
-func (*mockSurface) SetBufferTransform(client *Client, transform int32) {}
-func (*mockSurface) SetBufferScale(client *Client, scale int32)         {}
+func (*mockSurface) SetBufferTransform(client *wayland.Client, transform int32) {}
+func (*mockSurface) SetBufferScale(client *wayland.Client, scale int32)         {}
 
 type mockCompositor struct {
 	X *xgb.Conn
@@ -214,15 +110,15 @@ type mockCompositor struct {
 	graphicsBackend *XGraphicsBackend
 }
 
-func (*mockCompositor) Bind(client *Client, version uint32) {}
+func (*mockCompositor) Bind(client *wayland.Client, version uint32) {}
 
-func (comp *mockCompositor) CreateSurface(client *Client, id ObjectID) Surface {
+func (comp *mockCompositor) CreateSurface(client *wayland.Client, id wayland.ObjectID) wayland.Surface {
 	surface := &mockSurface{comp: comp}
 	comp.graphicsBackend.AddSurface(surface)
 	return surface
 }
 
-func (comp *mockCompositor) CreateRegion(client *Client, id ObjectID) Region {
+func (comp *mockCompositor) CreateRegion(client *wayland.Client, id wayland.ObjectID) wayland.Region {
 	return &mockRegion{comp: comp}
 }
 
@@ -230,17 +126,17 @@ type mockRegion struct {
 	comp *mockCompositor
 }
 
-func (*mockRegion) Destroy(client *Client)                             {}
-func (*mockRegion) Add(client *Client, x, y, width, height int32)      {}
-func (*mockRegion) Subtract(client *Client, x, y, width, height int32) {}
+func (*mockRegion) Destroy(client *wayland.Client)                             {}
+func (*mockRegion) Add(client *wayland.Client, x, y, width, height int32)      {}
+func (*mockRegion) Subtract(client *wayland.Client, x, y, width, height int32) {}
 
 type mockShell struct {
 	comp *mockCompositor
 }
 
-func (*mockShell) Bind(client *Client, version uint32) {}
+func (*mockShell) Bind(client *wayland.Client, version uint32) {}
 
-func (*mockShell) GetShellSurface(client *Client, id ObjectID, surface Surface) {
+func (*mockShell) GetShellSurface(client *wayland.Client, id wayland.ObjectID, surface wayland.Surface) {
 	fmt.Println("GetShellSurface")
 }
 
@@ -248,15 +144,15 @@ type mockXdgWmBase struct {
 	comp *mockCompositor
 }
 
-func (*mockXdgWmBase) Bind(client *Client, version uint32) {}
-func (*mockXdgWmBase) Destroy(client *Client)              {}
-func (*mockXdgWmBase) CreatePositioner(client *Client, id ObjectID) XDGPositioner {
+func (*mockXdgWmBase) Bind(client *wayland.Client, version uint32) {}
+func (*mockXdgWmBase) Destroy(client *wayland.Client)              {}
+func (*mockXdgWmBase) CreatePositioner(client *wayland.Client, id wayland.ObjectID) wayland.XDGPositioner {
 	return nil
 }
-func (*mockXdgWmBase) GetXDGSurface(client *Client, id ObjectID, surface Surface) XDGSurface {
+func (*mockXdgWmBase) GetXDGSurface(client *wayland.Client, id wayland.ObjectID, surface wayland.Surface) wayland.XDGSurface {
 	return &mockXDGSurface{surface.(*mockSurface)}
 }
-func (*mockXdgWmBase) Pong(client *Client, serial uint32) {}
+func (*mockXdgWmBase) Pong(client *wayland.Client, serial uint32) {}
 
 type mockXDGSurface struct {
 	surface *mockSurface
@@ -264,75 +160,76 @@ type mockXDGSurface struct {
 
 // wl_surface_send_enter(struct wl_resource *resource_, struct wl_resource *output)
 
-func (*mockXDGSurface) Destroy(client *Client) {}
-func (surface *mockXDGSurface) GetToplevel(client *Client, id ObjectID) XDGToplevel {
+func (*mockXDGSurface) Destroy(client *wayland.Client) {}
+func (surface *mockXDGSurface) GetToplevel(client *wayland.Client, id wayland.ObjectID) wayland.XDGToplevel {
 	obj := &mockToplevel{surface: surface}
 	surface.surface.toplevel = obj
 	return obj
 }
-func (*mockXDGSurface) GetPopup(client *Client, id ObjectID, parent *C.struct_wl_resource, positioner XDGPositioner) {
+func (*mockXDGSurface) GetPopup(client *wayland.Client, id wayland.ObjectID, parent *wayland.Resource, positioner wayland.XDGPositioner) {
 }
-func (*mockXDGSurface) SetWindowGeometry(client *Client, x, y, width, height int32) {}
-func (*mockXDGSurface) AckConfigure(client *Client, serial uint32)                  {}
+func (*mockXDGSurface) SetWindowGeometry(client *wayland.Client, x, y, width, height int32) {}
+func (*mockXDGSurface) AckConfigure(client *wayland.Client, serial uint32)                  {}
 
 type mockSeat struct {
 	comp *mockCompositor
 }
 
-func (seat *mockSeat) Bind(client *Client, version uint32) {
-	name := C.CString("default")
-	defer C.free(unsafe.Pointer(name))
+func (seat *mockSeat) Bind(client *wayland.Client, version uint32) {
 	// C.wl_seat_send_capabilities(client.getResource(seat), C.WL_SEAT_CAPABILITY_KEYBOARD|C.WL_SEAT_CAPABILITY_POINTER)
-	C.wl_seat_send_capabilities(client.getResource(seat), 0)
-	C.wl_seat_send_name(client.getResource(seat), name)
+	client.SeatSendCapabilities(seat, 0)
+	client.SeatSendName(seat, "default")
 }
 
-func (seat *mockSeat) GetTouch(client *Client, id ObjectID) Touch       { return nil }
-func (seat *mockSeat) GetKeyboard(client *Client, id ObjectID) Keyboard { return nil }
-func (seat *mockSeat) GetPointer(client *Client, id ObjectID) Pointer   { return nil }
-func (seat *mockSeat) Release(client *Client)                           {}
+func (seat *mockSeat) GetTouch(client *wayland.Client, id wayland.ObjectID) wayland.Touch { return nil }
+func (seat *mockSeat) GetKeyboard(client *wayland.Client, id wayland.ObjectID) wayland.Keyboard {
+	return nil
+}
+func (seat *mockSeat) GetPointer(client *wayland.Client, id wayland.ObjectID) wayland.Pointer {
+	return nil
+}
+func (seat *mockSeat) Release(client *wayland.Client) {}
 
 type mockToplevel struct {
 	surface *mockXDGSurface
 }
 
-func (*mockToplevel) Destroy(client *Client)                                 {}
-func (*mockToplevel) SetParent(client *Client, parent *C.struct_wl_resource) {}
-func (*mockToplevel) SetTitle(client *Client, title string)                  {}
-func (*mockToplevel) SetAppID(client *Client, app_id string)                 {}
-func (*mockToplevel) ShowWindowMenu(client *Client, seat Seat, serial uint32, x, y int32) {
+func (*mockToplevel) Destroy(client *wayland.Client)                             {}
+func (*mockToplevel) SetParent(client *wayland.Client, parent *wayland.Resource) {}
+func (*mockToplevel) SetTitle(client *wayland.Client, title string)              {}
+func (*mockToplevel) SetAppID(client *wayland.Client, app_id string)             {}
+func (*mockToplevel) ShowWindowMenu(client *wayland.Client, seat wayland.Seat, serial uint32, x, y int32) {
 }
-func (*mockToplevel) Move(client *Client, seat Seat, serial uint32)                 {}
-func (*mockToplevel) Resize(client *Client, seat Seat, serial uint32, edges uint32) {}
-func (*mockToplevel) SetMaxSize(client *Client, width, height int32)                {}
-func (*mockToplevel) SetMinSize(client *Client, width, height int32)                {}
-func (*mockToplevel) SetMaximized(client *Client)                                   {}
-func (*mockToplevel) UnsetMaximized(client *Client)                                 {}
-func (*mockToplevel) SetFullscreen(client *Client, output *C.struct_wl_resource)    {}
-func (*mockToplevel) UnsetFullscreen(client *Client)                                {}
-func (*mockToplevel) SetMinimized(client *Client)                                   {}
+func (*mockToplevel) Move(client *wayland.Client, seat wayland.Seat, serial uint32)                 {}
+func (*mockToplevel) Resize(client *wayland.Client, seat wayland.Seat, serial uint32, edges uint32) {}
+func (*mockToplevel) SetMaxSize(client *wayland.Client, width, height int32)                        {}
+func (*mockToplevel) SetMinSize(client *wayland.Client, width, height int32)                        {}
+func (*mockToplevel) SetMaximized(client *wayland.Client)                                           {}
+func (*mockToplevel) UnsetMaximized(client *wayland.Client)                                         {}
+func (*mockToplevel) SetFullscreen(client *wayland.Client, output *wayland.Resource)                {}
+func (*mockToplevel) UnsetFullscreen(client *wayland.Client)                                        {}
+func (*mockToplevel) SetMinimized(client *wayland.Client)                                           {}
 
 type mockOutput struct{}
 
-func (output *mockOutput) Bind(client *Client, version uint32) {
-	fmt.Println("bind mockOutput")
-	make := C.CString("A monitor")
-	defer C.free(unsafe.Pointer(make))
-	res := client.getResource(output)
-	C.wl_output_send_geometry(res, 0, 0, 301, 170, 0, make, make, 0)
-	C.wl_output_send_mode(res, 0x1|0x2, 1920, 1080, 60000)
-	C.wl_output_send_done(res)
+func (output *mockOutput) Bind(client *wayland.Client, version uint32) {
+	const make = "A monitor"
+	client.OutputSendGeometry(output, 0, 0, 301, 170, 0, make, make, 0)
+	client.OutputSendMode(output, 0x1|0x2, 1920, 1080, 60000)
+	client.OutputSendDone(output)
 }
 
-func (*mockOutput) Release(client *Client) {}
+func (*mockOutput) Release(client *wayland.Client) {}
 
 type mockDataDeviceManager struct {
 	comp *mockCompositor
 }
 
-func (*mockDataDeviceManager) Bind(client *Client, version uint32)                     {}
-func (*mockDataDeviceManager) CreateDataSource(client *Client, id ObjectID) DataSource { return nil }
-func (*mockDataDeviceManager) GetDataDevice(client *Client, id ObjectID, seat Seat) DataDevice {
+func (*mockDataDeviceManager) Bind(client *wayland.Client, version uint32) {}
+func (*mockDataDeviceManager) CreateDataSource(client *wayland.Client, id wayland.ObjectID) wayland.DataSource {
+	return nil
+}
+func (*mockDataDeviceManager) GetDataDevice(client *wayland.Client, id wayland.ObjectID, seat wayland.Seat) wayland.DataDevice {
 	return nil
 }
 
@@ -341,7 +238,7 @@ func main() {
 	// egl.Init()
 	// gpBindWaylandDisplayWL = C.PFNEGLBINDWAYLANDDISPLAYWL(getProcAddr("eglBindWaylandDisplayWL"))
 
-	wldpy, err := NewDisplay()
+	wldpy, err := wayland.NewDisplay()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -385,12 +282,12 @@ func main() {
 	wldpy.CreateDataDeviceManagerGlobal(comp.ddm)
 	wldpy.CreateOutputGlobal(out)
 	// eglBindWaylandDisplayWL(edpy, wldpy.dpy)
-	C.wl_display_init_shm(wldpy.dpy)
+	wldpy.InitShm()
 
-	evloop := C.wl_display_get_event_loop(wldpy.dpy)
+	evloop := wldpy.EventLoop()
 	for {
-		C.wl_event_loop_dispatch(evloop, 0)
-		C.wl_display_flush_clients(wldpy.dpy)
+		evloop.Dispatch(0)
+		wldpy.FlushClients()
 		backend.Render()
 	}
 
