@@ -239,7 +239,6 @@ func main() {
 
 	go http.ListenAndServe("localhost:6060", nil)
 
-	// egl.Init()
 	// gpBindWaylandDisplayWL = C.PFNEGLBINDWAYLANDDISPLAYWL(getProcAddr("eglBindWaylandDisplayWL"))
 
 	wldpy, err := wayland.NewDisplay()

@@ -15,6 +15,13 @@ import (
 	"honnef.co/go/wayfarer/wayland"
 )
 
+const (
+	// Use 3.3 while testing in qemu, because of llvmpipe.
+	// Switch to 4.5 later.
+	glMajor = 4
+	glMinor = 6
+)
+
 type XSurface struct {
 	Surface *mockSurface
 	Damaged bool

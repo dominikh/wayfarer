@@ -178,13 +178,6 @@ func eglChooseConfig(dpy egl.EGLDisplay, attribs []int32, visual gbm.Format) egl
 	return nil
 }
 
-const (
-	// Use 3.3 while testing in qemu, because of llvmpipe.
-	// Switch to 4.5 later.
-	glMajor = 3
-	glMinor = 3
-)
-
 func drmFbGetFromBo(dev *drm.Handle, bo *gbm.BO) (uint32, error) {
 	width := bo.Width()
 	height := bo.Height()
