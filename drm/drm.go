@@ -212,8 +212,7 @@ type (
 		VsyncEnd   uint16
 		Vtotal     uint16
 		Vscan      uint16
-
-		Vrefresh uint32
+		Vrefresh   uint32
 
 		Flags uint32
 		Type  uint32

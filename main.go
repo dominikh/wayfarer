@@ -18,6 +18,8 @@ import (
 
 	"github.com/BurntSushi/xgb"
 	"honnef.co/go/egl"
+	"honnef.co/go/gl"
+	"honnef.co/go/newui/ogl"
 	"honnef.co/go/wayfarer/wayland"
 )
 
@@ -235,6 +237,27 @@ func (*mockDataDeviceManager) GetDataDevice(client *wayland.Client, id wayland.O
 
 func main() {
 	go http.ListenAndServe("localhost:6060", nil)
+
+	{
+		egl.Init()
+		gl.Init()
+		var kms Backend = &KMS{DevicePath: "/dev/dri/card0"}
+		must(kms.Initialize())
+		out := kms.Outputs()[0]
+		kms.SetOutputMode(out, out.Modes()[0])
+
+		if !egl.MakeCurrent(kms.Display(), out.Surface(), out.Surface(), kms.Context()) {
+			log.Fatal("could not make EGL context current")
+		}
+		ogl.EnableGLDebugLogging()
+
+		gl.ClearColor(1.0, 0.0, 0.0, 1.0)
+		gl.Clear(gl.COLOR_BUFFER_BIT)
+		out.RenderFrame()
+		for {
+		}
+	}
+
 	// egl.Init()
 	// gpBindWaylandDisplayWL = C.PFNEGLBINDWAYLANDDISPLAYWL(getProcAddr("eglBindWaylandDisplayWL"))
 
@@ -306,4 +329,24 @@ func main() {
 	buffer and turn that into an EGL image when the user calls
 	eglCreateImageKHR. */
 
+}
+
+type Backend interface {
+	Initialize() error
+	Destroy()
+	Outputs() []Output
+	SetOutputMode(Output, Mode) error
+	Context() egl.EGLContext
+	Display() egl.EGLDisplay
+}
+
+type Mode interface {
+	Width() uint32
+	Height() uint32
+}
+
+type Output interface {
+	Modes() []Mode
+	Surface() egl.EGLSurface
+	RenderFrame()
 }

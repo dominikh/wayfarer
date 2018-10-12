@@ -1,5 +1,3 @@
-// +build ignore
-
 package main
 
 import (
@@ -8,8 +6,6 @@ import (
 	"unsafe"
 
 	"honnef.co/go/egl"
-	"honnef.co/go/gl"
-	"honnef.co/go/newui/ogl"
 	"honnef.co/go/wayfarer/drm"
 	"honnef.co/go/wayfarer/gbm"
 )
@@ -22,6 +18,163 @@ func must(err error) {
 
 func matchConfigToVisual(dpy egl.EGLDisplay, visualID int, configs []egl.EGLConfig) {
 }
+
+var _ Backend = (*KMS)(nil)
+
+type KMS struct {
+	DevicePath string
+
+	drmdev   *drm.Handle
+	gbmdev   *gbm.Device
+	edpy     egl.EGLDisplay
+	econfig  egl.EGLConfig
+	econtext egl.EGLContext
+	outputs  []Output
+}
+
+func (kms *KMS) Initialize() error {
+	egl.Init()
+	egl.BindAPI(egl.OPENGL_API)
+
+	drmdev, err := drm.Open(kms.DevicePath)
+	if err != nil {
+		return err
+	}
+	kms.drmdev = drmdev
+
+	kms.drmdev.SetMaster()
+	gbmdev, err := gbm.CreateDevice(drmdev.Fd())
+	if err != nil {
+		return err
+	}
+	kms.gbmdev = gbmdev
+
+	edpy := egl.GetDisplay(egl.EGLNativeDisplayType(kms.gbmdev.Handle()))
+	if !egl.Initialize(edpy, nil, nil) {
+		return fmt.Errorf("could not initialize EGL display: %d", egl.GetError())
+	}
+	kms.edpy = edpy
+
+	res, err := kms.drmdev.Resources()
+	if err != nil {
+		return err
+	}
+
+	var outputs []Output
+	for _, connID := range res.Connectors {
+		conn, err := kms.drmdev.Connector(connID)
+		if err != nil {
+			continue
+		}
+		if conn.Connection != drm.ModeConnected {
+			continue
+		}
+		outputs = append(outputs, &KMSOutput{kms: kms, connID: connID, modes: conn.Modes})
+	}
+	kms.outputs = outputs
+
+	attribs := []int32{
+		egl.RED_SIZE, 1,
+		egl.GREEN_SIZE, 1,
+		egl.BLUE_SIZE, 1,
+		egl.ALPHA_SIZE, 0,
+		egl.CONFORMANT, egl.OPENGL_BIT,
+		egl.RENDERABLE_TYPE, egl.OPENGL_BIT,
+		egl.SURFACE_TYPE, egl.WINDOW_BIT,
+		egl.NATIVE_RENDERABLE, egl.TRUE,
+		egl.NONE,
+	}
+	kms.econfig = eglChooseConfig(kms.edpy, attribs, gbm.FormatXRGB8888)
+
+	attribs = []int32{
+		egl.CONTEXT_FLAGS_KHR, egl.CONTEXT_OPENGL_DEBUG_BIT_KHR,
+		egl.CONTEXT_OPENGL_PROFILE_MASK_KHR, egl.CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR,
+		egl.CONTEXT_MAJOR_VERSION_KHR, glMajor,
+		egl.CONTEXT_MINOR_VERSION_KHR, glMinor,
+		egl.NONE,
+	}
+	ctx := egl.CreateContext(kms.edpy, kms.econfig, nil, &attribs[0])
+	if ctx == nil {
+		errCode := egl.GetError()
+		return fmt.Errorf("could not create EGL context, error %#x", errCode)
+	}
+	kms.econtext = ctx
+
+	return nil
+}
+
+func (kms *KMS) Display() egl.EGLDisplay { return kms.edpy }
+func (kms *KMS) Context() egl.EGLContext { return kms.econtext }
+
+func (kms *KMS) SetOutputMode(out_ Output, mode_ Mode) error {
+	out := out_.(*KMSOutput)
+	mode := mode_.(*KMSMode)
+
+	// XXX free previously allocated buffers
+	gbmsurf, err := kms.gbmdev.CreateSurface(uint32(mode.mode.Hdisplay), uint32(mode.mode.Vdisplay), gbm.FormatXRGB8888, gbm.UseScanout|gbm.UseRendering)
+	if err != nil {
+		return err
+	}
+	out.gbmsurf = gbmsurf
+	eglsurf := egl.CreateWindowSurface(kms.edpy, kms.econfig, egl.EGLNativeWindowType(uintptr(out.gbmsurf.Handle())), nil)
+	if eglsurf == nil {
+		errCode := egl.GetError()
+		return fmt.Errorf("could not create EGL surface, error %#x", errCode)
+	}
+	out.eglsurf = eglsurf
+	out.mode = mode
+	return nil
+}
+
+func (kms *KMS) Destroy() {
+	// XXX implement
+}
+
+func (kms *KMS) Outputs() []Output {
+	return kms.outputs
+}
+
+type KMSMode struct {
+	mode drm.ModeInfo
+}
+
+type KMSOutput struct {
+	kms     *KMS
+	eglsurf egl.EGLSurface
+	gbmsurf *gbm.Surface
+
+	connID uint32
+	modes  []drm.ModeInfo
+	mode   *KMSMode
+}
+
+func (mode *KMSMode) Width() uint32  { return uint32(mode.mode.Hdisplay) }
+func (mode *KMSMode) Height() uint32 { return uint32(mode.mode.Vdisplay) }
+
+func (out *KMSOutput) RenderFrame() {
+	egl.SwapBuffers(out.kms.edpy, out.eglsurf)
+	bo, err := out.gbmsurf.LockFrontBuffer()
+	must(err)
+	fb, err := drmFbGetFromBo(out.kms.drmdev, bo)
+	must(err)
+
+	conn, err := out.kms.drmdev.Connector(out.connID)
+	must(err)
+	enc, err := out.kms.drmdev.Encoder(conn.EncoderID)
+	must(err)
+	err = out.kms.drmdev.SetCrtc(enc.CrtcID, fb, 0, 0, []uint32{conn.ConnectorID}, &out.mode.mode)
+	must(err)
+}
+
+func (out *KMSOutput) Modes() []Mode {
+	var ret []Mode
+	for _, mode := range out.modes {
+		ret = append(ret, &KMSMode{mode})
+	}
+	return ret
+}
+
+func (out *KMSOutput) Surface() egl.EGLSurface { return out.eglsurf }
 
 func eglChooseConfig(dpy egl.EGLDisplay, attribs []int32, visual gbm.Format) egl.EGLConfig {
 	var count int32
@@ -49,88 +202,6 @@ const (
 	glMajor = 3
 	glMinor = 3
 )
-
-func foo() {
-	egl.Init()
-	gl.Init()
-
-	drmdev, err := drm.Open("/dev/dri/card0")
-	must(err)
-	drmdev.SetMaster()
-	gbmdev, err := gbm.CreateDevice(drmdev.Fd())
-	must(err)
-	dpy := egl.GetDisplay(egl.EGLNativeDisplayType(gbmdev.Handle()))
-	if !egl.Initialize(dpy, nil, nil) {
-		panic("could not initialize EGL display")
-	}
-
-	// XXX SET UP KMS HERE XXX
-	res, err := drmdev.Resources()
-	must(err)
-	conn, err := drmdev.Connector(res.Connectors[0])
-	must(err)
-	mode := conn.Modes[0]
-
-	gbmsurf, err := gbmdev.CreateSurface(uint32(mode.Hdisplay), uint32(mode.Vdisplay), gbm.FormatXRGB8888, gbm.UseScanout|gbm.UseRendering)
-	must(err)
-
-	egl.BindAPI(egl.OPENGL_API)
-	attribs := []int32{
-		egl.RED_SIZE, 1,
-		egl.GREEN_SIZE, 1,
-		egl.BLUE_SIZE, 1,
-		egl.ALPHA_SIZE, 0,
-		egl.CONFORMANT, egl.OPENGL_BIT,
-		egl.RENDERABLE_TYPE, egl.OPENGL_BIT,
-		egl.SURFACE_TYPE, egl.WINDOW_BIT,
-		egl.NATIVE_RENDERABLE, egl.TRUE,
-		egl.NONE,
-	}
-
-	config := eglChooseConfig(dpy, attribs, gbm.FormatXRGB8888)
-
-	attribs = []int32{
-		egl.CONTEXT_FLAGS_KHR, egl.CONTEXT_OPENGL_DEBUG_BIT_KHR,
-		egl.CONTEXT_OPENGL_PROFILE_MASK_KHR, egl.CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR,
-		egl.CONTEXT_MAJOR_VERSION_KHR, glMajor,
-		egl.CONTEXT_MINOR_VERSION_KHR, glMinor,
-		egl.NONE,
-	}
-
-	ctx := egl.CreateContext(dpy, config, nil, &attribs[0])
-	if ctx == nil {
-		errCode := egl.GetError()
-		log.Fatalf("could not create EGL context, error %#x", errCode)
-	}
-
-	eglsurf := egl.CreateWindowSurface(dpy, config, egl.EGLNativeWindowType(uintptr(gbmsurf.Handle())), nil)
-	if eglsurf == nil {
-		errCode := egl.GetError()
-		log.Fatalf("could not create EGL surface, error %#x", errCode)
-	}
-
-	if !egl.MakeCurrent(dpy, eglsurf, eglsurf, ctx) {
-		log.Fatal("could not make EGL context current")
-	}
-	ogl.EnableGLDebugLogging()
-
-	gl.ClearColor(1.0, 0.0, 0.0, 1.0)
-	gl.Clear(gl.COLOR_BUFFER_BIT)
-	egl.SwapBuffers(dpy, eglsurf)
-	bo, err := gbmsurf.LockFrontBuffer()
-	must(err)
-	fb, err := drmFbGetFromBo(drmdev, bo)
-	must(err)
-
-	enc, err := drmdev.Encoder(conn.EncoderID)
-	must(err)
-	fmt.Println(enc.CrtcID, fb, conn.ConnectorID)
-	err = drmdev.SetCrtc(enc.CrtcID, fb, 0, 0, []uint32{conn.ConnectorID}, &mode)
-	must(err)
-
-	for {
-	}
-}
 
 func drmFbGetFromBo(dev *drm.Handle, bo *gbm.BO) (uint32, error) {
 	width := bo.Width()
@@ -165,8 +236,4 @@ func drmFbGetFromBo(dev *drm.Handle, bo *gbm.BO) (uint32, error) {
 		flags = drm.DRM_MODE_FB_MODIFIERS
 	}
 	return dev.AddFB2WithModifiers(width, height, uint32(format), handles, strides, offsets, modifiers, flags)
-}
-
-func main() {
-	foo()
 }
