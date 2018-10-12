@@ -171,6 +171,18 @@ type (
 		obj_id          uint32
 		obj_type        uint32
 	}
+
+	drmModeFbCmd2 struct {
+		fb_id        uint32
+		width        uint32
+		height       uint32
+		pixel_format uint32
+		flags        uint32
+		handles      [4]uint32
+		pitches      [4]uint32
+		offsets      [4]uint32
+		modifier     [4]uint64
+	}
 )
 
 const (
@@ -306,6 +318,8 @@ func Open(path string) (*Handle, error) {
 	}
 	return &Handle{f}, nil
 }
+
+func (hnd *Handle) Fd() int { return hnd.fd }
 
 func (hnd *Handle) Cap(capability uint64) (uint64, error) {
 	req := drmGetCap{
@@ -532,6 +546,21 @@ func (hnd *Handle) AddFB(width, height uint32, depth, bpp uint8, pitch, bo_handl
 	return f.fb_id
 }
 
+func (hnd *Handle) AddFB2WithModifiers(width, height, format uint32, handles, pitches, offsets [4]uint32, modifiers [4]uint64, flags uint32) (uint32, error) {
+	var f drmModeFbCmd2
+	f.width = width
+	f.height = height
+	f.pixel_format = format
+	f.flags = flags
+	f.handles = handles
+	f.pitches = pitches
+	f.offsets = offsets
+	f.modifier = modifiers
+
+	_, err := hnd.ioctl(DRM_IOCTL_MODE_ADDFB2.value, unsafe.Pointer(&f))
+	return f.fb_id, err
+}
+
 func (hnd *Handle) RmFB(fb uint32) {
 	hnd.ioctl(DRM_IOCTL_MODE_RMFB.value, unsafe.Pointer(&fb))
 }
@@ -549,7 +578,7 @@ func (hnd *Handle) Mmap(handle uint32, size uint32) []byte {
 	return (*[1 << 31]byte)(unsafe.Pointer(p))[:size]
 }
 
-func (hnd *Handle) SetCrtc(crtcID, bufferID uint32, x, y uint32, connectors []uint32, mode *ModeInfo) {
+func (hnd *Handle) SetCrtc(crtcID, bufferID uint32, x, y uint32, connectors []uint32, mode *ModeInfo) error {
 	var crtc drmModeCrtc
 	crtc.x = x
 	crtc.y = y
@@ -575,8 +604,11 @@ func (hnd *Handle) SetCrtc(crtcID, bufferID uint32, x, y uint32, connectors []ui
 		crtc.mode.vtotal = mode.Vtotal
 		crtc.mode_valid = 1
 	}
-	hnd.ioctl(DRM_IOCTL_MODE_SETCRTC.value, unsafe.Pointer(&crtc))
-	// XXX error handling
+	_, err := hnd.ioctl(DRM_IOCTL_MODE_SETCRTC.value, unsafe.Pointer(&crtc))
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (hnd *Handle) Crtc(crtcID uint32) ModeCrtc {
@@ -852,6 +884,11 @@ var (
 		sig:  opInOut,
 		typ:  drmModeObjGetProperties{},
 	}
+	DRM_IOCTL_MODE_ADDFB2 = op{
+		code: 0xB8,
+		sig:  opInOut,
+		typ:  drmModeFbCmd2{},
+	}
 )
 
 var ops = []*op{
@@ -870,6 +907,7 @@ var ops = []*op{
 	&DRM_IOCTL_SET_CLIENT_CAP,
 	&DRM_IOCTL_MODE_GETPROPERTY,
 	&DRM_IOCTL_MODE_OBJ_GETPROPERTIES,
+	&DRM_IOCTL_MODE_ADDFB2,
 }
 
 func init() {
@@ -913,3 +951,7 @@ const (
 	DRM_MODE_OBJECT_PLANE     = 0xeeeeeeee
 	DRM_MODE_OBJECT_ANY       = 0
 )
+
+const DRM_MODE_FB_MODIFIERS = 2
+
+const DRM_FORMAT_MOD_INVALID = 1<<56 - 1

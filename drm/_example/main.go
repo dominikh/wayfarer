@@ -1,3 +1,5 @@
+// +build ignore
+
 package main
 
 import (
@@ -11,8 +13,6 @@ import (
 	"honnef.co/go/wayfarer/drm"
 	"honnef.co/go/wayfarer/vt"
 )
-
-var Global *drm.Handle
 
 func main() {
 	chRelsig := make(chan os.Signal, 1)
@@ -32,7 +32,6 @@ func main() {
 	// tty.KDSKBMUTE(1)
 
 	dev, err := drm.Open("/dev/dri/card0")
-	Global = dev
 	if err != nil {
 		log.Fatal(err)
 	}
