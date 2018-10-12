@@ -12,15 +12,14 @@ import (
 var _ Backend = (*X11)(nil)
 
 type X11 struct {
-	dpy      *x11.Display
-	edpy     egl.EGLDisplay
-	econfig  egl.EGLConfig
-	econtext egl.EGLContext
-	outputs  []Output
+	dpy     *x11.Display
+	edpy    egl.EGLDisplay
+	econfig egl.EGLConfig
+	outputs []Output
 }
 
 func (x *X11) Display() egl.EGLDisplay { return x.edpy }
-func (x *X11) Context() egl.EGLContext { return x.econtext }
+func (x *X11) Config() egl.EGLConfig   { return x.econfig }
 func (x *X11) Destroy() {
 	// XXX implement
 }
@@ -69,12 +68,6 @@ func (x *X11) Initialize() error {
 		egl.NONE,
 	}
 
-	context := egl.CreateContext(x.edpy, config, nil, &attribs[0])
-	if context == nil {
-		errCode := egl.GetError()
-		return fmt.Errorf("could not create EGL context, error %#x", errCode)
-	}
-	x.econtext = context
 	x.outputs = []Output{&X11Output{win: win}}
 	return nil
 }

@@ -312,7 +312,7 @@ type Backend interface {
 	Destroy()
 	Outputs() []Output
 	SetOutputMode(Output, Mode) error
-	Context() egl.EGLContext
+	Config() egl.EGLConfig
 	Display() egl.EGLDisplay
 }
 

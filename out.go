@@ -33,10 +33,28 @@ type Renderer struct {
 	Surfaces []*XSurface
 
 	WindowBlock *ShaderWindowBlock
+
+	econtext egl.EGLContext
 }
 
 func NewRenderer(backend Backend, output Output) (*Renderer, error) {
-	if !egl.MakeCurrent(backend.Display(), output.Surface(), output.Surface(), backend.Context()) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	attribs := []int32{
+		egl.CONTEXT_FLAGS_KHR, egl.CONTEXT_OPENGL_DEBUG_BIT_KHR,
+		egl.CONTEXT_OPENGL_PROFILE_MASK_KHR, egl.CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR,
+		egl.CONTEXT_MAJOR_VERSION_KHR, glMajor,
+		egl.CONTEXT_MINOR_VERSION_KHR, glMinor,
+		egl.NONE,
+	}
+	ctx := egl.CreateContext(backend.Display(), backend.Config(), nil, &attribs[0])
+	if ctx == nil {
+		errCode := egl.GetError()
+		return nil, fmt.Errorf("could not create EGL context, error %#x", errCode)
+	}
+
+	if !egl.MakeCurrent(backend.Display(), output.Surface(), output.Surface(), ctx) {
 		log.Fatal("Could not make EGL context current")
 	}
 	ogl.EnableGLDebugLogging()
@@ -86,6 +104,7 @@ func NewRenderer(backend Backend, output Output) (*Renderer, error) {
 		Output:      output,
 		Program:     prog,
 		WindowBlock: block,
+		econtext:    ctx,
 	}, nil
 }
 
@@ -141,7 +160,7 @@ func (backend *Renderer) Render() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	if !egl.MakeCurrent(backend.Backend.Display(), backend.Output.Surface(), backend.Output.Surface(), backend.Backend.Context()) {
+	if !egl.MakeCurrent(backend.Backend.Display(), backend.Output.Surface(), backend.Output.Surface(), backend.econtext) {
 		fmt.Printf("%#x\n", egl.GetError())
 		log.Fatal("Could not make EGL context current")
 	}

@@ -24,12 +24,11 @@ var _ Backend = (*KMS)(nil)
 type KMS struct {
 	DevicePath string
 
-	drmdev   *drm.Handle
-	gbmdev   *gbm.Device
-	edpy     egl.EGLDisplay
-	econfig  egl.EGLConfig
-	econtext egl.EGLContext
-	outputs  []Output
+	drmdev  *drm.Handle
+	gbmdev  *gbm.Device
+	edpy    egl.EGLDisplay
+	econfig egl.EGLConfig
+	outputs []Output
 }
 
 func (kms *KMS) Initialize() error {
@@ -83,25 +82,11 @@ func (kms *KMS) Initialize() error {
 	}
 	kms.econfig = eglChooseConfig(kms.edpy, attribs, gbm.FormatXRGB8888)
 
-	attribs = []int32{
-		egl.CONTEXT_FLAGS_KHR, egl.CONTEXT_OPENGL_DEBUG_BIT_KHR,
-		egl.CONTEXT_OPENGL_PROFILE_MASK_KHR, egl.CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR,
-		egl.CONTEXT_MAJOR_VERSION_KHR, glMajor,
-		egl.CONTEXT_MINOR_VERSION_KHR, glMinor,
-		egl.NONE,
-	}
-	ctx := egl.CreateContext(kms.edpy, kms.econfig, nil, &attribs[0])
-	if ctx == nil {
-		errCode := egl.GetError()
-		return fmt.Errorf("could not create EGL context, error %#x", errCode)
-	}
-	kms.econtext = ctx
-
 	return nil
 }
 
 func (kms *KMS) Display() egl.EGLDisplay { return kms.edpy }
-func (kms *KMS) Context() egl.EGLContext { return kms.econtext }
+func (kms *KMS) Config() egl.EGLConfig   { return kms.econfig }
 
 func (kms *KMS) SetOutputMode(out_ Output, mode_ Mode) error {
 	out := out_.(*KMSOutput)
