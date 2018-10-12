@@ -33,9 +33,6 @@ type KMS struct {
 }
 
 func (kms *KMS) Initialize() error {
-	egl.Init()
-	egl.BindAPI(egl.OPENGL_API)
-
 	drmdev, err := drm.Open(kms.DevicePath)
 	if err != nil {
 		return err

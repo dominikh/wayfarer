@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -13,16 +12,8 @@ import (
 	"honnef.co/go/egl"
 	"honnef.co/go/gl"
 	"honnef.co/go/newui/ogl"
-	"honnef.co/go/newui/x11"
 	"honnef.co/go/wayfarer/wayland"
 )
-
-type EGL struct {
-	Display egl.EGLDisplay
-	Surface egl.EGLSurface
-	Context egl.EGLContext
-	Config  egl.EGLConfig
-}
 
 type XSurface struct {
 	Surface *mockSurface
@@ -33,10 +24,10 @@ type XSurface struct {
 	oldHeight int32
 }
 
-type XGraphicsBackend struct {
-	X       *x11.Display
-	Window  x11.Window
-	EGL     EGL
+type Renderer struct {
+	Backend Backend
+	Output  Output
+
 	Program ogl.Program
 
 	Surfaces []*XSurface
@@ -44,69 +35,8 @@ type XGraphicsBackend struct {
 	WindowBlock *ShaderWindowBlock
 }
 
-func NewXGraphicsBackend() (*XGraphicsBackend, error) {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	if err := egl.Init(); err != nil {
-		return nil, err
-	}
-	if err := gl.Init(); err != nil {
-		return nil, err
-	}
-	if !egl.BindAPI(egl.OPENGL_API) {
-		return nil, errors.New("couldn't bind OpenGL")
-	}
-
-	dpy, err := x11.NewDisplay()
-	if err != nil {
-		return nil, err
-	}
-	win, err := dpy.CreateSimpleWindow(dpy.DefaultRootWindow(), 0, 0, 1920, 1080, 0, 0, 0)
-	if err != nil {
-		return nil, err
-	}
-	win.Map()
-
-	edpy := egl.GetDisplay(nil)
-	if edpy == nil {
-		return nil, errors.New("could not create EGL display")
-	}
-	if !egl.Initialize(edpy, nil, nil) {
-		return nil, errors.New("could not initialize EGL display")
-	}
-	attribs := []int32{
-		egl.RED_SIZE, 8,
-		egl.GREEN_SIZE, 8,
-		egl.BLUE_SIZE, 8,
-		egl.ALPHA_SIZE, 8,
-		egl.CONFORMANT, egl.OPENGL_BIT,
-		egl.SURFACE_TYPE, egl.WINDOW_BIT,
-		egl.NONE,
-	}
-
-	var config egl.EGLConfig
-	var numConfig int32
-	egl.ChooseConfig(edpy, &attribs[0], &config, 1, &numConfig)
-	attribs = []int32{
-		egl.CONTEXT_FLAGS_KHR, egl.CONTEXT_OPENGL_DEBUG_BIT_KHR,
-		egl.CONTEXT_OPENGL_PROFILE_MASK_KHR, egl.CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR,
-		egl.CONTEXT_MAJOR_VERSION_KHR, 4,
-		egl.CONTEXT_MINOR_VERSION_KHR, 1,
-		egl.NONE,
-	}
-	context := egl.CreateContext(edpy, config, nil, &attribs[0])
-	if context == nil {
-		errCode := egl.GetError()
-		return nil, fmt.Errorf("could not create EGL context, error %#x", errCode)
-	}
-
-	surface := egl.CreateWindowSurface(edpy, config, egl.EGLNativeWindowType(win.ID), nil)
-	if surface == nil {
-		return nil, errors.New("could not create EGL surface")
-	}
-
-	if !egl.MakeCurrent(edpy, surface, surface, context) {
+func NewRenderer(backend Backend, output Output) (*Renderer, error) {
+	if !egl.MakeCurrent(backend.Display(), output.Surface(), output.Surface(), backend.Context()) {
 		log.Fatal("Could not make EGL context current")
 	}
 	ogl.EnableGLDebugLogging()
@@ -151,15 +81,9 @@ func NewXGraphicsBackend() (*XGraphicsBackend, error) {
 	ubo.Bind(gl.SHADER_STORAGE_BUFFER, 1)
 	ubo.Map(&block)
 
-	return &XGraphicsBackend{
-		X:      dpy,
-		Window: win,
-		EGL: EGL{
-			Display: edpy,
-			Surface: surface,
-			Context: context,
-			Config:  config,
-		},
+	return &Renderer{
+		Backend:     backend,
+		Output:      output,
 		Program:     prog,
 		WindowBlock: block,
 	}, nil
@@ -196,7 +120,7 @@ func (surface *XSurface) Initialize() {
 	surface.oldHeight = height
 }
 
-func (backend *XGraphicsBackend) AddSurface(surface *mockSurface) {
+func (backend *Renderer) AddSurface(surface *mockSurface) {
 	xsurface := &XSurface{
 		Surface: surface,
 		Damaged: true,
@@ -204,7 +128,7 @@ func (backend *XGraphicsBackend) AddSurface(surface *mockSurface) {
 	backend.Surfaces = append(backend.Surfaces, xsurface)
 }
 
-func (backend *XGraphicsBackend) DamageSurface(surface *mockSurface) {
+func (backend *Renderer) DamageSurface(surface *mockSurface) {
 	for _, xsurface := range backend.Surfaces {
 		if xsurface.Surface == surface {
 			xsurface.Damaged = true
@@ -213,11 +137,12 @@ func (backend *XGraphicsBackend) DamageSurface(surface *mockSurface) {
 	}
 }
 
-func (backend *XGraphicsBackend) Render() {
+func (backend *Renderer) Render() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	if !egl.MakeCurrent(backend.EGL.Display, backend.EGL.Surface, backend.EGL.Surface, backend.EGL.Context) {
+	if !egl.MakeCurrent(backend.Backend.Display(), backend.Output.Surface(), backend.Output.Surface(), backend.Backend.Context()) {
+		fmt.Printf("%#x\n", egl.GetError())
 		log.Fatal("Could not make EGL context current")
 	}
 
@@ -261,7 +186,7 @@ func (backend *XGraphicsBackend) Render() {
 	}
 
 	gl.DrawArraysInstanced(gl.TRIANGLES, 0, 6, int32(len(backend.Surfaces)))
-	egl.SwapBuffers(backend.EGL.Display, backend.EGL.Surface)
+	egl.SwapBuffers(backend.Backend.Display(), backend.Output.Surface())
 
 	for _, surface := range backend.Surfaces {
 		if surface.Surface.state.frameCallback != nil {

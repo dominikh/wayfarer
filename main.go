@@ -16,10 +16,8 @@ import (
 	_ "net/http/pprof"
 	"unsafe"
 
-	"github.com/BurntSushi/xgb"
 	"honnef.co/go/egl"
 	"honnef.co/go/gl"
-	"honnef.co/go/newui/ogl"
 	"honnef.co/go/wayfarer/wayland"
 )
 
@@ -68,7 +66,7 @@ func (surface *mockSurface) Attach(client *wayland.Client, buffer *wayland.Buffe
 	surface.pending.changed |= stateBuffer
 }
 func (surface *mockSurface) Damage(client *wayland.Client, x, y, width, height int32) {
-	surface.comp.graphicsBackend.DamageSurface(surface)
+	surface.comp.renderer.DamageSurface(surface)
 }
 func (surface *mockSurface) Frame(client *wayland.Client, callback *wayland.Callback) {
 	surface.pending.frameCallback = callback
@@ -100,8 +98,6 @@ func (*mockSurface) SetBufferTransform(client *wayland.Client, transform int32) 
 func (*mockSurface) SetBufferScale(client *wayland.Client, scale int32)         {}
 
 type mockCompositor struct {
-	X *xgb.Conn
-
 	shell  *mockShell
 	wmBase *mockXdgWmBase
 	seat   *mockSeat
@@ -109,14 +105,15 @@ type mockCompositor struct {
 
 	outputs []*mockOutput
 
-	graphicsBackend *XGraphicsBackend
+	backend  Backend
+	renderer *Renderer
 }
 
 func (*mockCompositor) Bind(client *wayland.Client, version uint32) {}
 
 func (comp *mockCompositor) CreateSurface(client *wayland.Client, id wayland.ObjectID) wayland.Surface {
 	surface := &mockSurface{comp: comp}
-	comp.graphicsBackend.AddSurface(surface)
+	comp.renderer.AddSurface(surface)
 	return surface
 }
 
@@ -236,35 +233,17 @@ func (*mockDataDeviceManager) GetDataDevice(client *wayland.Client, id wayland.O
 }
 
 func main() {
+	egl.Init()
+	gl.Init()
+	egl.BindAPI(egl.OPENGL_API)
+
 	go http.ListenAndServe("localhost:6060", nil)
-
-	{
-		egl.Init()
-		gl.Init()
-		var kms Backend = &KMS{DevicePath: "/dev/dri/card0"}
-		must(kms.Initialize())
-		out := kms.Outputs()[0]
-		kms.SetOutputMode(out, out.Modes()[0])
-
-		if !egl.MakeCurrent(kms.Display(), out.Surface(), out.Surface(), kms.Context()) {
-			log.Fatal("could not make EGL context current")
-		}
-		ogl.EnableGLDebugLogging()
-
-		gl.ClearColor(1.0, 0.0, 0.0, 1.0)
-		gl.Clear(gl.COLOR_BUFFER_BIT)
-		out.RenderFrame()
-		for {
-		}
-	}
 
 	// egl.Init()
 	// gpBindWaylandDisplayWL = C.PFNEGLBINDWAYLANDDISPLAYWL(getProcAddr("eglBindWaylandDisplayWL"))
 
 	wldpy, err := wayland.NewDisplay()
-	if err != nil {
-		log.Fatal(err)
-	}
+	must(err)
 
 	socket, ok := wldpy.AddSocketAuto()
 	if !ok {
@@ -272,18 +251,15 @@ func main() {
 	}
 	fmt.Println(socket)
 
-	X, err := xgb.NewConn()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	backend, err := NewXGraphicsBackend()
-	if err != nil {
-		log.Fatal(err)
-	}
+	backend := &X11{}
+	must(backend.Initialize())
+	output := backend.Outputs()[0]
+	backend.SetOutputMode(output, output.Modes()[0])
+	renderer, err := NewRenderer(backend, output)
+	must(err)
 	comp := &mockCompositor{
-		X:               X,
-		graphicsBackend: backend,
+		backend:  backend,
+		renderer: renderer,
 	}
 
 	shell := &mockShell{comp: comp}
@@ -311,7 +287,7 @@ func main() {
 	for {
 		evloop.Dispatch(0)
 		wldpy.FlushClients()
-		backend.Render()
+		renderer.Render()
 	}
 
 	// EGL_WL_bind_wayland_display
