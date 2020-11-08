@@ -309,6 +309,7 @@ const Server = struct {
     }
 
     fn cursorMotion(listener: *Listener(*c.struct_wlr_event_pointer_motion), event: *c.struct_wlr_event_pointer_motion) callconv(.C) void {
+        // XXX support relative cursor motion
         std.debug.print("cursor motion\n", .{});
     }
 
@@ -340,6 +341,9 @@ const Server = struct {
 
             // XXX fully transform cursor coordinates to surface coordinates
             server.seat.pointerNotifyMotion(event.time_msec, sx, sy);
+        } else {
+            // TODO(dh): is there a fixed set of valid pointer names?
+            c.wlr_xcursor_manager_set_cursor_image(server.cursor_mgr, "left_ptr", server.cursor);
         }
     }
 
@@ -460,6 +464,8 @@ const Server = struct {
 const Seat = struct {
     seat: *c.wlr_seat,
 
+    request_cursor: Listener(*c.struct_wlr_seat_pointer_request_set_cursor_event),
+
     fn setCapabilities(seat: *const Seat, caps: u32) void {
         c.wlr_seat_set_capabilities(seat.seat, caps);
     }
@@ -497,7 +503,18 @@ const Seat = struct {
     }
 
     fn pointerNotifyFrame(seat: *const Seat) void {
+        // XXX don't send frame events if we didn't send any events to
+        // the focussed client, for example because the cursor moved
+        // across the empty desktop, not any client.
         c.wlr_seat_pointer_notify_frame(seat.seat);
+    }
+
+    fn requestCursor(listener: *Listener(*c.struct_wlr_seat_pointer_request_set_cursor_event), event: *c.struct_wlr_seat_pointer_request_set_cursor_event) callconv(.C) void {
+        const seat = @fieldParentPtr(Seat, "request_cursor", listener);
+        const server = @fieldParentPtr(Server, "seat", seat);
+        if (seat.seat.pointer_state.focused_client == event.seat_client) {
+            c.wlr_cursor_set_surface(server.cursor, event.surface, event.hotspot_x, event.hotspot_y);
+        }
     }
 };
 
@@ -565,19 +582,6 @@ const Output = struct {
         var now: std.os.timespec = undefined;
         // XXX don't panic
         std.os.clock_gettime(std.os.CLOCK_MONOTONIC, &now) catch |err| @panic(@errorName(err));
-
-        // NOTE(dh): calling this in main didn't work (didn't draw any
-        //   cursor). calling this after calling wlr_output_attach_render
-        //   caused a failed assertion. a sensible place to call this
-        //   would be when handling cursor motion, as we need different
-        //   cursors when we're on a surface. it would, however, be nice to avoid
-        //   calling this function repeatedly, in part because
-        //   wlroots spams a debug message every time the function gets
-        //   called and has to use software cursors. it's probably more
-        //   efficient to not call it all the time, too.
-        //
-        // TODO(dh): is there a fixed set of valid pointer names?
-        c.wlr_xcursor_manager_set_cursor_image(server.cursor_mgr, "left_ptr", server.cursor);
 
         if (!c.wlr_output_attach_render(output, null)) {
             // TODO(dh): why can this fail?
@@ -704,7 +708,9 @@ const View = struct {
         view.link.remove();
         allocator.destroy(view);
     }
-    fn xdgToplevelRequestMove(listener: *Listener(*c.struct_wlr_xdg_surface), surface: *c.struct_wlr_xdg_surface) callconv(.C) void {}
+    fn xdgToplevelRequestMove(listener: *Listener(*c.struct_wlr_xdg_surface), surface: *c.struct_wlr_xdg_surface) callconv(.C) void {
+        std.debug.print("we should move, I guess\n", .{});
+    }
     fn xdgToplevelRequestResize(listener: *Listener(*c.struct_wlr_xdg_surface), surface: *c.struct_wlr_xdg_surface) callconv(.C) void {}
 };
 
@@ -802,6 +808,9 @@ pub fn main() !void {
 
     server.seat.seat = c.wlr_seat_create(server.dsp, "seat0") orelse return error.Failure;
     defer c.wlr_seat_destroy(server.seat.seat);
+
+    server.seat.request_cursor.notify = Seat.requestCursor;
+    wl_signal_add(&server.seat.seat.events.request_set_cursor, &server.seat.request_cursor);
 
     // note: no destructor; the shell is a static global
     server.xdg_shell = c.wlr_xdg_shell_create(server.dsp) orelse return error.Failure;
