@@ -109,7 +109,7 @@ const c = @cImport({
     @cInclude("wlr/util/log.h");
     // @cInclude("wlr/util/region.h");
 
-    // @cInclude("wlr/types/wlr_box.h");
+    @cInclude("wlr/types/wlr_box.h");
     // @cInclude("wlr/types/wlr_buffer.h");
     @cInclude("wlr/types/wlr_compositor.h");
     @cInclude("wlr/types/wlr_cursor.h");
@@ -261,13 +261,7 @@ const Server = struct {
     new_xdg_surface: Listener(*c.struct_wlr_xdg_surface),
     views: List(View, "link"),
 
-    new_output: Listener(*c.struct_wlr_output),
-    new_input: Listener(*c.struct_wlr_input_device),
-
     cursor: *c.struct_wlr_cursor,
-    cursor_motion: Listener(*c.struct_wlr_event_pointer_motion),
-    cursor_motion_absolute: Listener(*c.struct_wlr_event_pointer_motion_absolute),
-
     cursor_mgr: *c.wlr_xcursor_manager,
 
     outputs: List(Output, "link"),
@@ -276,6 +270,13 @@ const Server = struct {
     seat: *c.wlr_seat,
     pointers: List(Pointer, "link"),
     keyboards: List(Keyboard, "link"),
+
+    new_output: Listener(*c.struct_wlr_output),
+    new_input: Listener(*c.struct_wlr_input_device),
+    cursor_motion: Listener(*c.struct_wlr_event_pointer_motion),
+    cursor_motion_absolute: Listener(*c.struct_wlr_event_pointer_motion_absolute),
+    cursor_button: Listener(*c.struct_wlr_event_pointer_button),
+    cursor_frame: Listener(*c_void),
 
     fn init(server: *Server) void {
         server.outputs.init();
@@ -295,6 +296,17 @@ const Server = struct {
         c.wlr_seat_set_capabilities(server.seat, @intCast(u32, caps));
     }
 
+    fn cursorFrame(listener: *Listener(*c_void), event: *c_void) callconv(.C) void {
+        const server = @fieldParentPtr(Server, "cursor_frame", listener);
+        c.wlr_seat_pointer_notify_frame(server.seat);
+    }
+
+    fn cursorButton(listener: *Listener(*c.struct_wlr_event_pointer_button), event: *c.struct_wlr_event_pointer_button) callconv(.C) void {
+        const server = @fieldParentPtr(Server, "cursor_button", listener);
+        // XXX handle return value
+        _ = c.wlr_seat_pointer_notify_button(server.seat, event.time_msec, event.button, event.state);
+    }
+
     fn cursorMotion(listener: *Listener(*c.struct_wlr_event_pointer_motion), event: *c.struct_wlr_event_pointer_motion) callconv(.C) void {
         std.debug.print("cursor motion\n", .{});
     }
@@ -302,7 +314,6 @@ const Server = struct {
     //TypeOfField(@This(), "cursor_motion_absolute")
     fn cursorMotionAbsolute(listener: *Listener(*c.struct_wlr_event_pointer_motion_absolute), event: *c.struct_wlr_event_pointer_motion_absolute) callconv(.C) void {
         const server = @fieldParentPtr(Server, "cursor_motion_absolute", listener);
-        // std.debug.print("moving cursor to ({d}, {d})\n", .{ event.x, event.y });
         c.wlr_cursor_warp_absolute(server.cursor, event.device, event.x, event.y);
 
         // TODO(dh): the event coordinates are in the range [0, 1].
@@ -312,34 +323,44 @@ const Server = struct {
         // outputs or portions thereof, etc.
 
         const box = c.wlr_output_layout_get_box(server.output_layout, null).?;
-        const x = @floatToInt(i32, @round(@intToFloat(f64, box.*.width) * event.x));
-        const y = @floatToInt(i32, @round(@intToFloat(f64, box.*.height) * event.y));
+        const x = @intToFloat(f64, box.*.width) * event.x;
+        const y = @intToFloat(f64, box.*.height) * event.y;
 
         // TODO(dh): process motion
         if (server.findViewUnderCursor(x, y)) |view| {
-            // XXX set focus if the view changed from last time
+            // XXX set focus only if the view changed from last time
+            const keyboard = c.wlr_seat_get_keyboard(view.server.seat);
+            if (keyboard != null) {
+                c.wlr_seat_keyboard_notify_enter(view.server.seat, view.xdg_surface.surface, &keyboard.*.keycodes, keyboard.*.num_keycodes, &keyboard.*.modifiers);
+            }
+            if (!view.server.pointers.isEmpty()) {
+                c.wlr_seat_pointer_notify_enter(view.server.seat, view.xdg_surface.surface, 0, 0);
+            }
+
+            // XXX transform cursor coordinates to surface coordinates
+            // XXX pass in correct time
+            c.wlr_seat_pointer_notify_motion(server.seat, event.time_msec, x, y);
         }
     }
 
-    fn findViewUnderCursor(server: *Server, lx: i32, ly: i32) ?*View {
+    fn findViewUnderCursor(server: *Server, lx: f64, ly: f64) ?*View {
         // OPT(dh): test against the previously found view. most of
         // the time, the cursor moves within a view.
         //
         // OPT(dh): cache check against views' transforms by finding
         // the rectangular (non-rotated) area that views occupy
+        const x = @floatToInt(i32, @round(lx));
+        const y = @floatToInt(i32, @round(ly));
         var iter = server.views.iterate();
         while (iter.hasMore()) {
             const view = iter.next().?;
             // XXX support rotation and scaling
 
-            // xdg_surface.geometry describes the part of the client
-            // that is considered the actual window. we use it to
-            // ignore client-side drop shadows.
-            const geom = view.xdg_surface.geometry;
-            if (lx >= view.position.x + geom.x and
-                lx <= view.position.x + geom.x + geom.width and
-                ly >= view.position.y + geom.y and
-                ly <= view.position.y + geom.y + geom.height)
+            const geom = view.getGeometry();
+            if (x >= view.position.x + geom.x and
+                x <= view.position.x + geom.x + geom.width and
+                y >= view.position.y + geom.y and
+                y <= view.position.y + geom.y + geom.height)
             {
                 // XXX consider z level
                 return view;
@@ -600,6 +621,18 @@ const View = struct {
         return m;
     }
 
+    fn getGeometry(view: *const View) c.wlr_box {
+        // TODO(dh): de-c-ify all of this
+        var box: c.wlr_box = undefined;
+        c.wlr_surface_get_extends(view.xdg_surface.surface, &box);
+        if (view.xdg_surface.geometry.width == 0) {
+            return box;
+        }
+        // XXX handle return value
+        _ = c.wlr_box_intersection(&box, &view.xdg_surface.geometry, &box);
+        return box;
+    }
+
     fn width(surface: *const View) i32 {
         return surface.xdg_surface.surface.*.current.width;
     }
@@ -610,18 +643,11 @@ const View = struct {
 
     // TODO(dh): implement all of these
     fn xdgSurfaceMap(listener: *Listener(*c.struct_wlr_xdg_surface), surface: *c.struct_wlr_xdg_surface) callconv(.C) void {
+        std.debug.print("mapping {}\n", .{surface});
         const view = @fieldParentPtr(View, "map", listener);
         view.mapped = true;
 
         _ = c.wlr_xdg_toplevel_set_activated(surface, true);
-
-        const keyboard = c.wlr_seat_get_keyboard(view.server.seat);
-        if (keyboard != null) {
-            c.wlr_seat_keyboard_notify_enter(view.server.seat, surface.surface, &keyboard.*.keycodes, keyboard.*.num_keycodes, &keyboard.*.modifiers);
-        }
-        if (!view.server.pointers.isEmpty()) {
-            c.wlr_seat_pointer_notify_enter(view.server.seat, surface.surface, 0, 0);
-        }
     }
 
     fn xdgSurfaceUnmap(listener: *Listener(*c.struct_wlr_xdg_surface), surface: *c.struct_wlr_xdg_surface) callconv(.C) void {
@@ -679,14 +705,6 @@ const Keyboard = struct {
 };
 
 pub fn main() !void {
-    var X: [9]f32 = [9]f32{ 1, 0, 0, 0, 1, 0, 0, 0, 1 };
-    c.wlr_matrix_translate(&X, 1000, 1000);
-    c.wlr_matrix_translate(&X, 1000, 1000);
-    c.wlr_matrix_translate(&X, 1000, 1000);
-    for (X) |x| {
-        std.debug.print("{d} ", .{x});
-    }
-
     // c.wlr_log_init(c.enum_wlr_log_importance.WLR_DEBUG, null);
     var server: Server = undefined;
     server.init();
@@ -727,8 +745,12 @@ pub fn main() !void {
     // TODO(dh): other cursor events
     server.cursor_motion.notify = Server.cursorMotion;
     server.cursor_motion_absolute.notify = Server.cursorMotionAbsolute;
+    server.cursor_button.notify = Server.cursorButton;
+    server.cursor_frame.notify = Server.cursorFrame;
     wl_signal_add(&server.cursor.events.motion, &server.cursor_motion);
     wl_signal_add(&server.cursor.events.motion_absolute, &server.cursor_motion_absolute);
+    wl_signal_add(&server.cursor.events.button, &server.cursor_button);
+    wl_signal_add(&server.cursor.events.frame, &server.cursor_frame);
 
     server.new_input.notify = Server.newInput;
     wl_signal_add(&server.backend.events.new_input, &server.new_input);
