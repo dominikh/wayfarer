@@ -66,6 +66,7 @@ const stdout = std.io.getStdout().writer();
 // FIXME(dh): don't use @panic in functions called from C; send an error to the wayland client
 // TODO(dh): ponder https://github.com/swaywm/sway/pull/4452
 // TODO(dh): http://www.jlekstrand.net/jason/projects/wayland/transforms/
+// TODO(dh): handle device removal
 
 const c = @cImport({
     @cDefine("WLR_USE_UNSTABLE", {});
@@ -267,7 +268,7 @@ const Server = struct {
     outputs: List(Output, "link"),
 
     // TODO(dh): support multiple seats
-    seat: *c.wlr_seat,
+    seat: Seat,
     pointers: List(Pointer, "link"),
     keyboards: List(Keyboard, "link"),
 
@@ -293,18 +294,18 @@ const Server = struct {
         if (!server.keyboards.isEmpty()) {
             caps |= c.WL_SEAT_CAPABILITY_KEYBOARD;
         }
-        c.wlr_seat_set_capabilities(server.seat, @intCast(u32, caps));
+        server.seat.setCapabilities(@intCast(u32, caps));
     }
 
     fn cursorFrame(listener: *Listener(*c_void), event: *c_void) callconv(.C) void {
         const server = @fieldParentPtr(Server, "cursor_frame", listener);
-        c.wlr_seat_pointer_notify_frame(server.seat);
+        server.seat.pointerNotifyFrame();
     }
 
     fn cursorButton(listener: *Listener(*c.struct_wlr_event_pointer_button), event: *c.struct_wlr_event_pointer_button) callconv(.C) void {
         const server = @fieldParentPtr(Server, "cursor_button", listener);
         // XXX handle return value
-        _ = c.wlr_seat_pointer_notify_button(server.seat, event.time_msec, event.button, event.state);
+        _ = server.seat.pointerNotifyButton(event.time_msec, event.button, event.state);
     }
 
     fn cursorMotion(listener: *Listener(*c.struct_wlr_event_pointer_motion), event: *c.struct_wlr_event_pointer_motion) callconv(.C) void {
@@ -323,23 +324,22 @@ const Server = struct {
         // outputs or portions thereof, etc.
 
         const box = c.wlr_output_layout_get_box(server.output_layout, null).?;
-        const x = @intToFloat(f64, box.*.width) * event.x;
-        const y = @intToFloat(f64, box.*.height) * event.y;
+        const sx = @intToFloat(f64, box.*.width) * event.x;
+        const sy = @intToFloat(f64, box.*.height) * event.y;
 
         // TODO(dh): process motion
-        if (server.findViewUnderCursor(x, y)) |view| {
+        if (server.findViewUnderCursor(sx, sy)) |view| {
             // XXX set focus only if the view changed from last time
-            const keyboard = c.wlr_seat_get_keyboard(view.server.seat);
-            if (keyboard != null) {
-                c.wlr_seat_keyboard_notify_enter(view.server.seat, view.xdg_surface.surface, &keyboard.*.keycodes, keyboard.*.num_keycodes, &keyboard.*.modifiers);
+            if (view.server.seat.getKeyboard()) |keyboard| {
+                server.seat.keyboardNotifyEnter(view.xdg_surface.surface, &keyboard.*.keycodes, keyboard.*.num_keycodes, &keyboard.*.modifiers);
             }
             if (!view.server.pointers.isEmpty()) {
-                c.wlr_seat_pointer_notify_enter(view.server.seat, view.xdg_surface.surface, 0, 0);
+                // XXX 0, 0 is not correct
+                server.seat.pointerNotifyEnter(view.xdg_surface.surface, 0, 0);
             }
 
-            // XXX transform cursor coordinates to surface coordinates
-            // XXX pass in correct time
-            c.wlr_seat_pointer_notify_motion(server.seat, event.time_msec, x, y);
+            // XXX fully transform cursor coordinates to surface coordinates
+            server.seat.pointerNotifyMotion(event.time_msec, sx, sy);
         }
     }
 
@@ -401,11 +401,11 @@ const Server = struct {
 
                 server.keyboards.insert(&keyboard.link);
 
-                if (c.wlr_seat_get_keyboard(server.seat) == null) {
+                if (server.seat.getKeyboard() == null) {
                     // set the first added keyboard as active so we
                     // can give new clients keyboard focus even before
                     // any key has been pressed.
-                    c.wlr_seat_set_keyboard(server.seat, device);
+                    server.seat.setKeyboard(device);
                 }
             },
 
@@ -454,6 +454,50 @@ const Server = struct {
                 // TODO(dh): handle other roles
             },
         }
+    }
+};
+
+const Seat = struct {
+    seat: *c.wlr_seat,
+
+    fn setCapabilities(seat: *const Seat, caps: u32) void {
+        c.wlr_seat_set_capabilities(seat.seat, caps);
+    }
+
+    fn setKeyboard(seat: *const Seat, kbd: *c.wlr_input_device) void {
+        c.wlr_seat_set_keyboard(seat.seat, kbd);
+    }
+
+    fn getKeyboard(seat: *const Seat) ?*c.struct_wlr_keyboard {
+        return c.wlr_seat_get_keyboard(seat.seat);
+    }
+
+    fn keyboardNotifyEnter(seat: *const Seat, surface: *c.struct_wlr_surface, keycodes: [*]u32, num_keycodes: usize, modifiers: *c.struct_wlr_keyboard_modifiers) void {
+        c.wlr_seat_keyboard_notify_enter(seat.seat, surface, keycodes, num_keycodes, modifiers);
+    }
+
+    fn keyboardNotifyModifiers(seat: *const Seat, mods: *c.struct_wlr_keyboard_modifiers) void {
+        c.wlr_seat_keyboard_notify_modifiers(seat.seat, mods);
+    }
+
+    fn keyboardNotifyKey(seat: *const Seat, time_msec: u32, keycode: u32, state: c.enum_wlr_key_state) void {
+        c.wlr_seat_keyboard_notify_key(seat.seat, time_msec, keycode, @intCast(u32, @enumToInt(state)));
+    }
+
+    fn pointerNotifyEnter(seat: *const Seat, surface: *c.struct_wlr_surface, sx: f64, sy: f64) void {
+        c.wlr_seat_pointer_notify_enter(seat.seat, surface, sx, sy);
+    }
+
+    fn pointerNotifyButton(seat: *const Seat, time_msec: u32, button: u32, state: c.enum_wlr_button_state) u32 {
+        return c.wlr_seat_pointer_notify_button(seat.seat, time_msec, button, state);
+    }
+
+    fn pointerNotifyMotion(seat: *const Seat, time_msec: u32, sx: f64, sy: f64) void {
+        c.wlr_seat_pointer_notify_motion(seat.seat, time_msec, sx, sy);
+    }
+
+    fn pointerNotifyFrame(seat: *const Seat) void {
+        c.wlr_seat_pointer_notify_frame(seat.seat);
     }
 };
 
@@ -686,9 +730,10 @@ const Keyboard = struct {
     // TODO(dh): implement all of these
     fn handleModifiers(listener: *Listener(*c_void), data: *c_void) callconv(.C) void {
         const keyboard = @fieldParentPtr(Keyboard, "modifiers", listener);
+        const seat = keyboard.server.seat;
         // TODO(dh): is there any benefit to avoiding repeated calls to this?
-        c.wlr_seat_set_keyboard(keyboard.server.seat, keyboard.device);
-        c.wlr_seat_keyboard_notify_modifiers(keyboard.server.seat, &keyboard.device.unnamed_0.keyboard.*.modifiers);
+        seat.setKeyboard(keyboard.device);
+        seat.keyboardNotifyModifiers(&keyboard.device.unnamed_0.keyboard.*.modifiers);
     }
     fn handleKey(listener: *Listener(*c.wlr_event_keyboard_key), key: *c.wlr_event_keyboard_key) callconv(.C) void {
         const keyboard = @fieldParentPtr(Keyboard, "key", listener);
@@ -696,8 +741,8 @@ const Keyboard = struct {
         const seat = server.seat;
 
         // TODO(dh): is there any benefit to avoiding repeated calls to this?
-        c.wlr_seat_set_keyboard(seat, keyboard.device);
-        c.wlr_seat_keyboard_notify_key(seat, key.time_msec, key.keycode, @intCast(u32, @enumToInt(key.state)));
+        seat.setKeyboard(keyboard.device);
+        seat.keyboardNotifyKey(key.time_msec, key.keycode, key.state);
     }
     fn handleKeymap(listener: *Listener(*c_void), data: *c_void) callconv(.C) void {}
     fn handleRepeatInfo(listener: *Listener(*c_void), data: *c_void) callconv(.C) void {}
@@ -755,8 +800,8 @@ pub fn main() !void {
     server.new_input.notify = Server.newInput;
     wl_signal_add(&server.backend.events.new_input, &server.new_input);
 
-    server.seat = c.wlr_seat_create(server.dsp, "seat0") orelse return error.Failure;
-    defer c.wlr_seat_destroy(server.seat);
+    server.seat.seat = c.wlr_seat_create(server.dsp, "seat0") orelse return error.Failure;
+    defer c.wlr_seat_destroy(server.seat.seat);
 
     // note: no destructor; the shell is a static global
     server.xdg_shell = c.wlr_xdg_shell_create(server.dsp) orelse return error.Failure;
