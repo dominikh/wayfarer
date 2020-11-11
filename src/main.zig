@@ -67,10 +67,15 @@ const stdout = std.io.getStdout().writer();
 // TODO(dh): ponder https://github.com/swaywm/sway/pull/4452
 // TODO(dh): http://www.jlekstrand.net/jason/projects/wayland/transforms/
 // TODO(dh): handle device removal
+// OPT(dh): wlr_cursor stores the cursor position as f64. Find out
+//   why, and if the values are ever not integer. if they're always
+//   integer, we can drop our use of @round. there's probably something
+//   scaling related.
 
 const c = @cImport({
     @cDefine("WLR_USE_UNSTABLE", {});
     @cInclude("wayland-server-core.h");
+    @cInclude("linux/input-event-codes.h");
 
     @cInclude("wlr/backend.h");
     // @cInclude("wlr/backend/drm.h");
@@ -250,7 +255,17 @@ fn wl_signal_add(signal: *c.struct_wl_signal, listener: anytype) void {
     c.wl_signal_add(signal, @ptrCast(*c.struct_wl_listener, listener));
 }
 
+const Position = struct {
+    x: i32 = 0,
+    y: i32 = 0,
+};
+
 const Server = struct {
+    const CursorMode = enum {
+        Normal,
+        Move,
+    };
+
     dsp: *c.struct_wl_display,
     evloop: *c.struct_wl_event_loop,
 
@@ -264,6 +279,9 @@ const Server = struct {
 
     cursor: *c.struct_wlr_cursor,
     cursor_mgr: *c.wlr_xcursor_manager,
+    cursor_mode: CursorMode,
+    grabbed_view: ?*View,
+    grab_offset: Position = .{},
 
     outputs: List(Output, "link"),
 
@@ -280,6 +298,7 @@ const Server = struct {
     cursor_frame: Listener(*c_void),
 
     fn init(server: *Server) void {
+        server.cursor_mode = .Normal;
         server.outputs.init();
         server.views.init();
         server.keyboards.init();
@@ -304,8 +323,29 @@ const Server = struct {
 
     fn cursorButton(listener: *Listener(*c.struct_wlr_event_pointer_button), event: *c.struct_wlr_event_pointer_button) callconv(.C) void {
         const server = @fieldParentPtr(Server, "cursor_button", listener);
-        // XXX handle return value
-        _ = server.seat.pointerNotifyButton(event.time_msec, event.button, event.state);
+
+        switch (server.cursor_mode) {
+            .Normal => {
+                // XXX handle return value
+                _ = server.seat.pointerNotifyButton(event.time_msec, event.button, event.state);
+            },
+
+            .Move => {
+                if (event.button == c.BTN_LEFT) {
+                    switch (event.state) {
+                        .WLR_BUTTON_RELEASED => {
+                            server.cursor_mode = .Normal;
+                        },
+                        .WLR_BUTTON_PRESSED => {
+                            // XXX throw an error, because this should be impossible
+                        },
+                        else => {
+                            // Oh, if only C enums were exhaustive
+                        },
+                    }
+                }
+            },
+        }
     }
 
     fn cursorMotion(listener: *Listener(*c.struct_wlr_event_pointer_motion), event: *c.struct_wlr_event_pointer_motion) callconv(.C) void {
@@ -317,33 +357,46 @@ const Server = struct {
     fn cursorMotionAbsolute(listener: *Listener(*c.struct_wlr_event_pointer_motion_absolute), event: *c.struct_wlr_event_pointer_motion_absolute) callconv(.C) void {
         const server = @fieldParentPtr(Server, "cursor_motion_absolute", listener);
         c.wlr_cursor_warp_absolute(server.cursor, event.device, event.x, event.y);
+        server.processCursorMotion(event.time_msec);
+    }
 
-        // TODO(dh): the event coordinates are in the range [0, 1].
-        // for the prototype we just hackily map to the layout. for
-        // real applications, we'll have to make use of the layout,
-        // support constricting absolute input devices to specific
-        // outputs or portions thereof, etc.
+    fn processCursorMotion(server: *Server, time_msec: u32) void {
+        const lx = server.cursor.x;
+        const ly = server.cursor.y;
 
-        const box = c.wlr_output_layout_get_box(server.output_layout, null).?;
-        const sx = @intToFloat(f64, box.*.width) * event.x;
-        const sy = @intToFloat(f64, box.*.height) * event.y;
+        switch (server.cursor_mode) {
+            .Normal => {
+                // TODO(dh): the event coordinates are in the range [0, 1].
+                // for the prototype we just hackily map to the layout. for
+                // real applications, we'll have to make use of the layout,
+                // support constricting absolute input devices to specific
+                // outputs or portions thereof, etc.
+                if (server.findViewUnderCursor(lx, ly)) |view| {
+                    // XXX set focus only if the view changed from last time
+                    if (view.server.seat.getKeyboard()) |keyboard| {
+                        server.seat.keyboardNotifyEnter(view.xdg_surface.surface, &keyboard.*.keycodes, keyboard.*.num_keycodes, &keyboard.*.modifiers);
+                    }
+                    if (!view.server.pointers.isEmpty()) {
+                        // XXX 0, 0 is not correct
+                        server.seat.pointerNotifyEnter(view.xdg_surface.surface, 0, 0);
+                    }
 
-        // TODO(dh): process motion
-        if (server.findViewUnderCursor(sx, sy)) |view| {
-            // XXX set focus only if the view changed from last time
-            if (view.server.seat.getKeyboard()) |keyboard| {
-                server.seat.keyboardNotifyEnter(view.xdg_surface.surface, &keyboard.*.keycodes, keyboard.*.num_keycodes, &keyboard.*.modifiers);
-            }
-            if (!view.server.pointers.isEmpty()) {
-                // XXX 0, 0 is not correct
-                server.seat.pointerNotifyEnter(view.xdg_surface.surface, 0, 0);
-            }
+                    // XXX use the inverse transformation matrix instead
+                    const sx = lx - @intToFloat(f64, view.position.x);
+                    const sy = ly - @intToFloat(f64, view.position.y);
+                    server.seat.pointerNotifyMotion(time_msec, sx, sy);
+                } else {
+                    // TODO(dh): is there a fixed set of valid pointer names?
+                    c.wlr_xcursor_manager_set_cursor_image(server.cursor_mgr, "left_ptr", server.cursor);
+                }
+            },
 
-            // XXX fully transform cursor coordinates to surface coordinates
-            server.seat.pointerNotifyMotion(event.time_msec, sx, sy);
-        } else {
-            // TODO(dh): is there a fixed set of valid pointer names?
-            c.wlr_xcursor_manager_set_cursor_image(server.cursor_mgr, "left_ptr", server.cursor);
+            .Move => {
+                server.grabbed_view.?.position = .{
+                    .x = @floatToInt(i32, @round(lx)) - server.grab_offset.x,
+                    .y = @floatToInt(i32, @round(ly)) - server.grab_offset.y,
+                };
+            },
         }
     }
 
@@ -377,15 +430,15 @@ const Server = struct {
         const server = @fieldParentPtr(Server, "new_input", listener);
 
         switch (device.type) {
-            c.enum_wlr_input_device_type.WLR_INPUT_DEVICE_KEYBOARD => {
+            .WLR_INPUT_DEVICE_KEYBOARD => {
                 var keyboard = allocator.create(Keyboard) catch @panic("out of memory");
                 keyboard.server = server;
                 keyboard.device = device;
 
                 // TODO(dh): a whole bunch of keymap stuff
                 const rules: c.xkb_rule_names = undefined;
-                const context = c.xkb_context_new(c.enum_xkb_context_flags.XKB_CONTEXT_NO_FLAGS);
-                const keymap = c.xkb_map_new_from_names(context, &rules, c.enum_xkb_keymap_compile_flags.XKB_KEYMAP_COMPILE_NO_FLAGS);
+                const context = c.xkb_context_new(.XKB_CONTEXT_NO_FLAGS);
+                const keymap = c.xkb_map_new_from_names(context, &rules, .XKB_KEYMAP_COMPILE_NO_FLAGS);
 
                 _ = c.wlr_keyboard_set_keymap(device.unnamed_0.keyboard, keymap);
                 c.xkb_keymap_unref(keymap);
@@ -413,7 +466,7 @@ const Server = struct {
                 }
             },
 
-            c.enum_wlr_input_device_type.WLR_INPUT_DEVICE_POINTER => {
+            .WLR_INPUT_DEVICE_POINTER => {
                 c.wlr_cursor_attach_input_device(server.cursor, device);
                 var pointer = allocator.create(Pointer) catch @panic("out of memory");
                 pointer.server = server;
@@ -432,7 +485,7 @@ const Server = struct {
     fn newXdgSurface(listener: *Listener(*c.struct_wlr_xdg_surface), xdg_surface: *c.struct_wlr_xdg_surface) callconv(.C) void {
         const server = @fieldParentPtr(Server, "new_xdg_surface", listener);
         switch (xdg_surface.role) {
-            c.enum_wlr_xdg_surface_role.WLR_XDG_SURFACE_ROLE_TOPLEVEL => {
+            .WLR_XDG_SURFACE_ROLE_TOPLEVEL => {
                 var view = allocator.create(View) catch @panic("out of memory");
                 view.* = .{
                     .server = server,
@@ -637,15 +690,15 @@ const View = struct {
     server: *Server,
     xdg_surface: *c.struct_wlr_xdg_surface,
     // the view's position in layout space
-    position: struct { x: i32, y: i32 } = .{ .x = 0.0, .y = 0.0 },
+    position: Position = .{},
     rotation: f32 = 0, // in radians
     mapped: bool = false,
 
     map: Listener(*c.struct_wlr_xdg_surface) = .{},
     unmap: Listener(*c.struct_wlr_xdg_surface) = .{},
     destroy: Listener(*c.struct_wlr_xdg_surface) = .{},
-    request_move: Listener(*c.struct_wlr_xdg_surface) = .{},
-    request_resize: Listener(*c.struct_wlr_xdg_surface) = .{},
+    request_move: Listener(*c.struct_wlr_xdg_toplevel_move_event) = .{},
+    request_resize: Listener(*c.struct_wlr_xdg_toplevel_resize_event) = .{},
 
     link: List(@This(), "link") = .{},
 
@@ -708,10 +761,21 @@ const View = struct {
         view.link.remove();
         allocator.destroy(view);
     }
-    fn xdgToplevelRequestMove(listener: *Listener(*c.struct_wlr_xdg_surface), surface: *c.struct_wlr_xdg_surface) callconv(.C) void {
-        std.debug.print("we should move, I guess\n", .{});
+    fn xdgToplevelRequestMove(listener: *Listener(*c.struct_wlr_xdg_toplevel_move_event), event: *c.struct_wlr_xdg_toplevel_move_event) callconv(.C) void {
+        // TODO(dh): check the serial against recent button presses, to prevent bad clients from invoking this at will
+        // TODO(dh): only allow this request from the focussed client
+        const view = @fieldParentPtr(View, "request_move", listener);
+        const server = view.server;
+
+        server.cursor_mode = .Move;
+        server.grabbed_view = view;
+        server.grab_offset = .{
+            .x = @floatToInt(i32, @round(server.cursor.x)) - view.position.x,
+            .y = @floatToInt(i32, @round(server.cursor.y)) - view.position.y,
+        };
     }
-    fn xdgToplevelRequestResize(listener: *Listener(*c.struct_wlr_xdg_surface), surface: *c.struct_wlr_xdg_surface) callconv(.C) void {}
+
+    fn xdgToplevelRequestResize(listener: *Listener(*c.struct_wlr_xdg_toplevel_resize_event), surface: *c.struct_wlr_xdg_toplevel_resize_event) callconv(.C) void {}
 };
 
 const Pointer = struct {
@@ -756,7 +820,6 @@ const Keyboard = struct {
 };
 
 pub fn main() !void {
-    // c.wlr_log_init(c.enum_wlr_log_importance.WLR_DEBUG, null);
     var server: Server = undefined;
     server.init();
 
