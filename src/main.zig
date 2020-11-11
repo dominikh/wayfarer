@@ -171,21 +171,30 @@ const c = @cImport({
     // @cInclude("wlr/types/wlr_xdg_shell_v6.h");
 });
 
-fn ListIterator(comptime T: type) type {
+fn ListIterator(comptime T: type, comptime forward: bool) type {
     return struct {
         head: *T,
         cur: *T,
 
         fn hasMore(iter: *@This()) bool {
-            return iter.cur.next != iter.head;
+            if (forward) {
+                return iter.cur.next != iter.head;
+            } else {
+                return iter.cur.prev != iter.head;
+            }
         }
         fn next(iter: *@This()) ?*T.elem {
             if (!iter.hasMore()) {
                 return null;
             }
 
-            iter.cur = iter.cur.next;
-            return iter.cur.container();
+            if (forward) {
+                iter.cur = iter.cur.next;
+                return iter.cur.container();
+            } else {
+                iter.cur = iter.cur.prev;
+                return iter.cur.container();
+            }
         }
     };
 }
@@ -206,7 +215,14 @@ fn List(comptime T: type, comptime element_link_field: []const u8) type {
             return self.next == self;
         }
 
-        fn iterate(self: *@This()) ListIterator(@This()) {
+        fn iterate(self: *@This()) ListIterator(@This(), true) {
+            return .{
+                .head = self,
+                .cur = self,
+            };
+        }
+
+        fn iterate_reverse(self: *@This()) ListIterator(@This(), false) {
             return .{
                 .head = self,
                 .cur = self,
@@ -412,7 +428,6 @@ const Server = struct {
         // the rectangular (non-rotated) area that views occupy
         var iter = server.views.iterate();
         while (iter.hasMore()) {
-            // XXX does this respect z level?
             const view = iter.next().?;
 
             // XXX support rotation and scaling
@@ -651,7 +666,7 @@ const Output = struct {
         const color = [_]f32{ 0.3, 0.3, 0.3, 1 };
         c.wlr_renderer_clear(renderer, color[0..4]);
 
-        var iter = server.views.iterate();
+        var iter = server.views.iterate_reverse();
         while (iter.hasMore()) {
             const view = iter.next().?;
             if (!view.mapped) {
