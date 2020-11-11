@@ -256,8 +256,8 @@ fn wl_signal_add(signal: *c.struct_wl_signal, listener: anytype) void {
 }
 
 const Position = struct {
-    x: i32 = 0,
-    y: i32 = 0,
+    x: f64 = 0,
+    y: f64 = 0,
 };
 
 const Server = struct {
@@ -371,21 +371,25 @@ const Server = struct {
                 // real applications, we'll have to make use of the layout,
                 // support constricting absolute input devices to specific
                 // outputs or portions thereof, etc.
-                if (server.findViewUnderCursor(lx, ly)) |view| {
+                var surface: ?*c.struct_wlr_surface = undefined;
+                var sx: f64 = undefined;
+                var sy: f64 = undefined;
+                if (server.findViewUnderCursor(lx, ly, &surface, &sx, &sy)) |view| {
                     // XXX set focus only if the view changed from last time
                     if (view.server.seat.getKeyboard()) |keyboard| {
-                        server.seat.keyboardNotifyEnter(view.xdg_surface.surface, &keyboard.*.keycodes, keyboard.*.num_keycodes, &keyboard.*.modifiers);
-                    }
-                    if (!view.server.pointers.isEmpty()) {
-                        // XXX 0, 0 is not correct
-                        server.seat.pointerNotifyEnter(view.xdg_surface.surface, 0, 0);
+                        server.seat.keyboardNotifyEnter(surface.?, &keyboard.*.keycodes, keyboard.*.num_keycodes, &keyboard.*.modifiers);
                     }
 
-                    // XXX use the inverse transformation matrix instead
-                    const sx = lx - @intToFloat(f64, view.position.x);
-                    const sy = ly - @intToFloat(f64, view.position.y);
-                    server.seat.pointerNotifyMotion(time_msec, sx, sy);
+                    // XXX this probably isn't handling subsurfaces correctly
+                    if (server.seat.seat.pointer_state.focused_surface == surface.?) {
+                        server.seat.pointerNotifyMotion(time_msec, sx, sy);
+                    } else {
+                        server.seat.pointerNotifyEnter(surface.?, sx, sy);
+                    }
                 } else {
+                    // TODO(dh): what if a button was held while the pointer left the surface?
+                    server.seat.pointerNotifyClearFocus();
+
                     // TODO(dh): is there a fixed set of valid pointer names?
                     c.wlr_xcursor_manager_set_cursor_image(server.cursor_mgr, "left_ptr", server.cursor);
                 }
@@ -393,33 +397,30 @@ const Server = struct {
 
             .Move => {
                 server.grabbed_view.?.position = .{
-                    .x = @floatToInt(i32, @round(lx)) - server.grab_offset.x,
-                    .y = @floatToInt(i32, @round(ly)) - server.grab_offset.y,
+                    .x = lx - server.grab_offset.x,
+                    .y = ly - server.grab_offset.y,
                 };
             },
         }
     }
 
-    fn findViewUnderCursor(server: *Server, lx: f64, ly: f64) ?*View {
+    fn findViewUnderCursor(server: *Server, lx: f64, ly: f64, surface: *?*c.struct_wlr_surface, sx: *f64, sy: *f64) ?*View {
         // OPT(dh): test against the previously found view. most of
         // the time, the cursor moves within a view.
         //
         // OPT(dh): cache check against views' transforms by finding
         // the rectangular (non-rotated) area that views occupy
-        const x = @floatToInt(i32, @round(lx));
-        const y = @floatToInt(i32, @round(ly));
         var iter = server.views.iterate();
         while (iter.hasMore()) {
+            // XXX does this respect z level?
             const view = iter.next().?;
-            // XXX support rotation and scaling
 
-            const geom = view.getGeometry();
-            if (x >= view.position.x + geom.x and
-                x <= view.position.x + geom.x + geom.width and
-                y >= view.position.y + geom.y and
-                y <= view.position.y + geom.y + geom.height)
-            {
-                // XXX consider z level
+            // XXX support rotation and scaling
+            const view_sx = lx - view.position.x;
+            const view_sy = ly - view.position.y;
+
+            surface.* = c.wlr_xdg_surface_surface_at(view.xdg_surface, view_sx, view_sy, sx, sy);
+            if (surface.* != null) {
                 return view;
             }
         }
@@ -547,6 +548,10 @@ const Seat = struct {
         c.wlr_seat_pointer_notify_enter(seat.seat, surface, sx, sy);
     }
 
+    fn pointerNotifyClearFocus(seat: *const Seat) void {
+        c.wlr_seat_pointer_notify_clear_focus(seat.seat);
+    }
+
     fn pointerNotifyButton(seat: *const Seat, time_msec: u32, button: u32, state: c.enum_wlr_button_state) u32 {
         return c.wlr_seat_pointer_notify_button(seat.seat, time_msec, button, state);
     }
@@ -556,9 +561,6 @@ const Seat = struct {
     }
 
     fn pointerNotifyFrame(seat: *const Seat) void {
-        // XXX don't send frame events if we didn't send any events to
-        // the focussed client, for example because the cursor moved
-        // across the empty desktop, not any client.
         c.wlr_seat_pointer_notify_frame(seat.seat);
     }
 
@@ -715,7 +717,7 @@ const View = struct {
         // rotate
         // scale
         var m = matrix.Identity;
-        matrix.translate(&m, @intToFloat(f32, x), @intToFloat(f32, y));
+        matrix.translate(&m, @floatCast(f32, x), @floatCast(f32, y));
         // TODO(dh): rotation should probably be around the center, not the origin
         matrix.rotate(&m, view.rotation);
         matrix.scale(&m, @intToFloat(f32, view.width()), @intToFloat(f32, view.height()));
@@ -770,8 +772,8 @@ const View = struct {
         server.cursor_mode = .Move;
         server.grabbed_view = view;
         server.grab_offset = .{
-            .x = @floatToInt(i32, @round(server.cursor.x)) - view.position.x,
-            .y = @floatToInt(i32, @round(server.cursor.y)) - view.position.y,
+            .x = server.cursor.x - view.position.x,
+            .y = server.cursor.y - view.position.y,
         };
     }
 
@@ -820,6 +822,7 @@ const Keyboard = struct {
 };
 
 pub fn main() !void {
+    // c.wlr_log_init(c.enum_wlr_log_importance.WLR_DEBUG, null);
     var server: Server = undefined;
     server.init();
 
