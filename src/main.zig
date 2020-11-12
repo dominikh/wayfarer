@@ -356,16 +356,25 @@ const Server = struct {
     fn cursorButton(listener: *Listener(*c.struct_wlr_event_pointer_button), event: *c.struct_wlr_event_pointer_button) callconv(.C) void {
         const server = @fieldParentPtr(Server, "cursor_button", listener);
 
-        switch (server.cursor_mode) {
-            .Normal => {
-                // XXX handle return value
-                _ = server.seat.pointerNotifyButton(event.time_msec, event.button, event.state);
-            },
+        // XXX handle return value
+        _ = server.seat.pointerNotifyButton(event.time_msec, event.button, event.state);
 
+        switch (server.cursor_mode) {
+            .Normal => {},
             .Move, .Resize => {
                 if (event.button == c.BTN_LEFT) {
                     switch (event.state) {
                         .WLR_BUTTON_RELEASED => {
+                            switch (server.cursor_mode) {
+                                .Move => |value| {
+                                    _ = c.wlr_xdg_toplevel_set_resizing(value.grabbed_view.xdg_surface, false);
+                                },
+                                .Resize => |value| {
+                                    _ = c.wlr_xdg_toplevel_set_resizing(value.grabbed_view.xdg_surface, false);
+                                },
+                                else => {},
+                            }
+
                             server.cursor_mode = .Normal;
                         },
                         .WLR_BUTTON_PRESSED => {
@@ -695,21 +704,13 @@ const Output = struct {
             if (!view.mapped) {
                 continue;
             }
-            const texture = c.wlr_surface_get_texture(view.xdg_surface.surface) orelse continue;
-
-            // buffer -> surface -> layout -> output
-
-            // TODO(dh): support rotated outputs
-            // TODO(dh): support outputs not positioned at (0, 0) in layout space
-            // TODO(dh): support buffers that don't match surface coordinates
-
-            var m = view.transformation_matrix();
-            matrix.mul(&m, @bitCast(matrix.Matrix, output.transform_matrix), m);
-
-            // XXX handle failure
-            _ = c.wlr_render_texture_with_matrix(renderer, texture, matrix.linear(&m), 1);
-            // XXX make sure the two timespec structs are actually ABI compatible
-            c.wlr_surface_send_frame_done(view.xdg_surface.surface, @ptrCast(*c.struct_timespec, &now));
+            var rdata = RenderData{
+                .output = our_output,
+                .view = view,
+                .now = now,
+            };
+            // TODO(dh): provide a safe wrapper for wlr_xdg_surface_for_each_surface
+            c.wlr_xdg_surface_for_each_surface(view.xdg_surface, Output.renderSurface, &rdata);
         }
 
         c.wlr_output_render_software_cursors(our_output.output, null);
@@ -720,6 +721,39 @@ const Output = struct {
             return;
         }
     }
+
+    fn renderSurface(surface: ?*c.struct_wlr_surface, sx: c_int, sy: c_int, data: ?*c_void) callconv(.C) void {
+        const rdata = @ptrCast(*RenderData, @alignCast(@alignOf(*RenderData), data.?));
+        const view = rdata.view;
+        const output = rdata.output;
+        const renderer = output.server.renderer;
+
+        const texture = c.wlr_surface_get_texture(surface) orelse return;
+
+        // buffer -> surface -> layout -> output
+
+        // TODO(dh): support rotated outputs
+        // TODO(dh): support outputs not positioned at (0, 0) in layout space
+        // TODO(dh): support buffers that don't match surface coordinates
+
+        var m = matrix.Identity;
+        matrix.translate(&m, @floatCast(f32, view.position.x + @intToFloat(f64, sx)), @floatCast(f32, view.position.y + @intToFloat(f64, sy)));
+        matrix.scale(&m, @intToFloat(f32, surface.?.current.width), @intToFloat(f32, surface.?.current.height));
+
+        // var m = view.transformation_matrix();
+        matrix.mul(&m, output.transform_matrix(), m);
+
+        // XXX handle failure
+        _ = c.wlr_render_texture_with_matrix(renderer, texture, matrix.linear(&m), 1);
+        // XXX make sure the two timespec structs are actually ABI compatible
+        c.wlr_surface_send_frame_done(surface, @ptrCast(*c.struct_timespec, &rdata.now));
+    }
+};
+
+const RenderData = struct {
+    output: *Output,
+    view: *View,
+    now: std.os.timespec,
 };
 
 fn deg2rad(deg: f32) f32 {
