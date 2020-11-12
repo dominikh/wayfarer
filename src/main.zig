@@ -35,6 +35,8 @@ const stdout = std.io.getStdout().writer();
 // Measured in pixels, extends to infinity in both directions. A
 // window's size and location is specified in layout space.
 //
+// Window geometry space:
+//
 // Surface space:
 //
 // A window's coordinate system, measured in pixels. (0, 0) is the
@@ -71,6 +73,9 @@ const stdout = std.io.getStdout().writer();
 //   why, and if the values are ever not integer. if they're always
 //   integer, we can drop our use of @round. there's probably something
 //   scaling related.
+// XXX is it me, or does wlroots not let us change surface state
+//   atomically? e.g. setting the size and setting activated both
+//   schedule configure events
 
 const c = @cImport({
     @cDefine("WLR_USE_UNSTABLE", {});
@@ -277,9 +282,22 @@ const Position = struct {
 };
 
 const Server = struct {
-    const CursorMode = enum {
+    const CursorModeTag = enum {
         Normal,
         Move,
+        Resize,
+    };
+
+    const CursorMode = union(CursorModeTag) {
+        Normal: void,
+        Move: struct {
+            grabbed_view: *View,
+            grab_offset: Position,
+        },
+        Resize: struct {
+            grabbed_view: *View,
+            edges: u32,
+        },
     };
 
     dsp: *c.struct_wl_display,
@@ -295,9 +313,7 @@ const Server = struct {
 
     cursor: *c.struct_wlr_cursor,
     cursor_mgr: *c.wlr_xcursor_manager,
-    cursor_mode: CursorMode,
-    grabbed_view: ?*View,
-    grab_offset: Position = .{},
+    cursor_mode: CursorMode = .{ .Normal = .{} },
 
     outputs: List(Output, "link"),
 
@@ -346,7 +362,7 @@ const Server = struct {
                 _ = server.seat.pointerNotifyButton(event.time_msec, event.button, event.state);
             },
 
-            .Move => {
+            .Move, .Resize => {
                 if (event.button == c.BTN_LEFT) {
                     switch (event.state) {
                         .WLR_BUTTON_RELEASED => {
@@ -411,11 +427,18 @@ const Server = struct {
                 }
             },
 
-            .Move => {
-                server.grabbed_view.?.position = .{
-                    .x = lx - server.grab_offset.x,
-                    .y = ly - server.grab_offset.y,
+            .Move => |value| {
+                value.grabbed_view.position = .{
+                    .x = lx - value.grab_offset.x,
+                    .y = ly - value.grab_offset.y,
                 };
+            },
+
+            .Resize => |value| {
+                const width = lx - value.grabbed_view.position.x;
+                const height = ly - value.grabbed_view.position.y;
+                // XXX who is responsible for honoring the client's min and max size? wlroots or us?
+                _ = c.wlr_xdg_toplevel_set_size(value.grabbed_view.xdg_surface, @floatToInt(u32, @round(width)), @floatToInt(u32, @round(height)));
             },
         }
     }
@@ -761,15 +784,16 @@ const View = struct {
 
     // TODO(dh): implement all of these
     fn xdgSurfaceMap(listener: *Listener(*c.struct_wlr_xdg_surface), surface: *c.struct_wlr_xdg_surface) callconv(.C) void {
-        std.debug.print("mapping {}\n", .{surface});
         const view = @fieldParentPtr(View, "map", listener);
         view.mapped = true;
 
+        // XXX should only the focussed client be active?
         _ = c.wlr_xdg_toplevel_set_activated(surface, true);
     }
 
     fn xdgSurfaceUnmap(listener: *Listener(*c.struct_wlr_xdg_surface), surface: *c.struct_wlr_xdg_surface) callconv(.C) void {
-        const view = @fieldParentPtr(View, "map", listener);
+        // XXX cancel interactive move, resize, …
+        const view = @fieldParentPtr(View, "unmap", listener);
         view.mapped = false;
     }
 
@@ -784,15 +808,31 @@ const View = struct {
         const view = @fieldParentPtr(View, "request_move", listener);
         const server = view.server;
 
-        server.cursor_mode = .Move;
-        server.grabbed_view = view;
-        server.grab_offset = .{
-            .x = server.cursor.x - view.position.x,
-            .y = server.cursor.y - view.position.y,
+        server.cursor_mode = .{
+            .Move = .{
+                .grabbed_view = view,
+                .grab_offset = .{
+                    .x = server.cursor.x - view.position.x,
+                    .y = server.cursor.y - view.position.y,
+                },
+            },
         };
     }
 
-    fn xdgToplevelRequestResize(listener: *Listener(*c.struct_wlr_xdg_toplevel_resize_event), surface: *c.struct_wlr_xdg_toplevel_resize_event) callconv(.C) void {}
+    fn xdgToplevelRequestResize(listener: *Listener(*c.struct_wlr_xdg_toplevel_resize_event), event: *c.struct_wlr_xdg_toplevel_resize_event) callconv(.C) void {
+        // TODO(dh): check the serial against recent button presses, to prevent bad clients from invoking this at will
+        // TODO(dh): only allow this request from the focussed client
+        const view = @fieldParentPtr(View, "request_resize", listener);
+        const server = view.server;
+
+        _ = c.wlr_xdg_toplevel_set_resizing(view.xdg_surface, true);
+        server.cursor_mode = .{
+            .Resize = .{
+                .grabbed_view = view,
+                .edges = event.edges,
+            },
+        };
+    }
 };
 
 const Pointer = struct {
@@ -837,7 +877,7 @@ const Keyboard = struct {
 };
 
 pub fn main() !void {
-    // c.wlr_log_init(c.enum_wlr_log_importance.WLR_DEBUG, null);
+    c.wlr_log_init(c.enum_wlr_log_importance.WLR_DEBUG, null);
     var server: Server = undefined;
     server.init();
 
