@@ -744,7 +744,7 @@ const Output = struct {
         var iter = server.views.iterate_reverse();
         while (iter.hasMore()) {
             const view = iter.next().?;
-            if (!view.mapped) {
+            if (!view.xdg_surface.mapped) {
                 continue;
             }
             var rdata = RenderData{
@@ -809,8 +809,6 @@ const View = struct {
     // the view's position in layout space
     position: Vec2 = .{},
     rotation: f32 = 0, // in radians
-    // TODO(dh): we don't need this field, wlr_xdg_surface has its own 'mapped' field
-    mapped: bool = false,
 
     active_resize: struct {
         orig_position: Vec2,
@@ -876,7 +874,6 @@ const View = struct {
     // TODO(dh): implement all of these
     fn xdgSurfaceMap(listener: *Listener(*c.struct_wlr_xdg_surface), surface: *c.struct_wlr_xdg_surface) callconv(.C) void {
         const view = @fieldParentPtr(View, "map", listener);
-        view.mapped = true;
 
         // XXX should only the focussed client be active?
         _ = c.wlr_xdg_toplevel_set_activated(surface, true);
@@ -885,7 +882,6 @@ const View = struct {
     fn xdgSurfaceUnmap(listener: *Listener(*c.struct_wlr_xdg_surface), surface: *c.struct_wlr_xdg_surface) callconv(.C) void {
         // XXX cancel interactive move, resize, …
         const view = @fieldParentPtr(View, "unmap", listener);
-        view.mapped = false;
     }
 
     fn xdgSurfaceDestroy(listener: *Listener(*c.struct_wlr_xdg_surface), surface: *c.struct_wlr_xdg_surface) callconv(.C) void {
