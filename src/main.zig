@@ -305,14 +305,7 @@ const Server = struct {
             // The cursor position when the grab was initiated, in layout coordinates
             orig_cursor: Vec2,
         },
-        Resize: struct {
-            grabbed_view: *View,
-            orig_position: Vec2,
-            orig_geometry: Box,
-            // The cursor position when the grab was initiated, in layout coordinates
-            orig_cursor: Vec2,
-            edges: u32,
-        },
+        Resize: *View,
     };
 
     dsp: *c.struct_wl_display,
@@ -384,8 +377,8 @@ const Server = struct {
                                 .Move => |value| {
                                     _ = c.wlr_xdg_toplevel_set_resizing(value.grabbed_view.xdg_surface, false);
                                 },
-                                .Resize => |value| {
-                                    _ = c.wlr_xdg_toplevel_set_resizing(value.grabbed_view.xdg_surface, false);
+                                .Resize => |view| {
+                                    _ = c.wlr_xdg_toplevel_set_resizing(view.xdg_surface, false);
                                 },
                                 else => {},
                             }
@@ -460,52 +453,41 @@ const Server = struct {
                 };
             },
 
-            .Resize => |value| {
-                const delta_lx = cursor_lx - value.orig_cursor.x;
-                const delta_ly = cursor_ly - value.orig_cursor.y;
+            .Resize => |view| {
+                const ar = view.active_resize;
+                const delta_lx = cursor_lx - ar.orig_cursor.x;
+                const delta_ly = cursor_ly - ar.orig_cursor.y;
 
-                var new_box = Box{
-                    .x = value.orig_position.x,
-                    .y = value.orig_position.y,
-                    .width = value.orig_geometry.width,
-                    .height = value.orig_geometry.height,
+                var new_size = Vec2{
+                    .x = ar.orig_geometry.width,
+                    .y = ar.orig_geometry.height,
                 };
-                if (value.edges & @intCast(u32, c.WLR_EDGE_LEFT) != 0) {
-                    new_box.x = value.orig_position.x + delta_lx;
-                    new_box.width = value.orig_geometry.width - delta_lx;
-                } else if (value.edges & @intCast(u32, c.WLR_EDGE_RIGHT) != 0) {
-                    new_box.width = value.orig_geometry.width + delta_lx;
+                if (ar.edges & @intCast(u32, c.WLR_EDGE_LEFT) != 0) {
+                    new_size.x = ar.orig_geometry.width - delta_lx;
+                } else if (ar.edges & @intCast(u32, c.WLR_EDGE_RIGHT) != 0) {
+                    new_size.x = ar.orig_geometry.width + delta_lx;
                 }
-                if (value.edges & @intCast(u32, c.WLR_EDGE_TOP) != 0) {
-                    new_box.y = value.orig_position.y + delta_ly;
-                    new_box.height = value.orig_geometry.height - delta_ly;
-                } else if (value.edges & @intCast(u32, c.WLR_EDGE_BOTTOM) != 0) {
-                    new_box.height = value.orig_geometry.height + delta_ly;
+                if (ar.edges & @intCast(u32, c.WLR_EDGE_TOP) != 0) {
+                    new_size.y = ar.orig_geometry.height - delta_ly;
+                } else if (ar.edges & @intCast(u32, c.WLR_EDGE_BOTTOM) != 0) {
+                    new_size.y = ar.orig_geometry.height + delta_ly;
                 }
 
-                const state = value.grabbed_view.xdg_surface.unnamed_0.toplevel.*.current;
+                const state = view.xdg_surface.unnamed_0.toplevel.*.current;
                 const min_width = @intToFloat(f64, state.min_width);
                 const min_height = @intToFloat(f64, state.min_height);
-                if (new_box.width < min_width) {
-                    if (value.edges & @intCast(u32, c.WLR_EDGE_LEFT) != 0) {
-                        new_box.x -= min_width - new_box.width;
-                    }
-                    new_box.width = min_width;
+                if (new_size.x < min_width) {
+                    new_size.x = min_width;
                 }
-                if (new_box.height < min_height) {
-                    if (value.edges & @intCast(u32, c.WLR_EDGE_TOP) != 0) {
-                        new_box.y -= min_height - new_box.height;
-                    }
-                    new_box.height = min_height;
+                if (new_size.y < min_height) {
+                    new_size.y = min_height;
                 }
 
-                // XXX don't change the view's coordinates right away.
-                // only change them once the client has commited a new
-                // surface at the new size.
-                value.grabbed_view.position.x = new_box.x;
-                value.grabbed_view.position.y = new_box.y;
-
-                _ = c.wlr_xdg_toplevel_set_size(value.grabbed_view.xdg_surface, @floatToInt(u32, @round(new_box.width)), @floatToInt(u32, @round(new_box.height)));
+                _ = c.wlr_xdg_toplevel_set_size(
+                    view.xdg_surface,
+                    @floatToInt(u32, @round(new_size.x)),
+                    @floatToInt(u32, @round(new_size.y)),
+                );
             },
         }
     }
@@ -610,6 +592,9 @@ const Server = struct {
                 view.request_resize.notify = View.xdgToplevelRequestResize;
                 wl_signal_add(&toplevel.*.events.request_move, &view.request_move);
                 wl_signal_add(&toplevel.*.events.request_resize, &view.request_resize);
+
+                view.commit.notify = View.commit;
+                wl_signal_add(&xdg_surface.surface.*.events.commit, &view.commit);
 
                 server.views.insert(&view.link);
             },
@@ -824,13 +809,23 @@ const View = struct {
     // the view's position in layout space
     position: Vec2 = .{},
     rotation: f32 = 0, // in radians
+    // TODO(dh): we don't need this field, wlr_xdg_surface has its own 'mapped' field
     mapped: bool = false,
+
+    active_resize: struct {
+        orig_position: Vec2,
+        orig_geometry: Box,
+        // The cursor position when the grab was initiated, in layout coordinates
+        orig_cursor: Vec2,
+        edges: u32,
+    } = undefined,
 
     map: Listener(*c.struct_wlr_xdg_surface) = .{},
     unmap: Listener(*c.struct_wlr_xdg_surface) = .{},
     destroy: Listener(*c.struct_wlr_xdg_surface) = .{},
     request_move: Listener(*c.struct_wlr_xdg_toplevel_move_event) = .{},
     request_resize: Listener(*c.struct_wlr_xdg_toplevel_resize_event) = .{},
+    commit: Listener(*c_void) = .{},
 
     link: List(@This(), "link") = .{},
 
@@ -924,18 +919,36 @@ const View = struct {
 
         // XXX clear focus
         _ = c.wlr_xdg_toplevel_set_resizing(view.xdg_surface, true);
+
+        // XXX do we need to wait with starting interactive resize
+        // until the client has acked it>
         server.cursor_mode = .{
-            .Resize = .{
-                .grabbed_view = view,
-                .orig_position = view.position,
-                .orig_geometry = view.getGeometry(),
-                .orig_cursor = .{
-                    .x = server.cursor.x,
-                    .y = server.cursor.y,
-                },
-                .edges = event.edges,
-            },
+            .Resize = view,
         };
+        view.active_resize = .{
+            .orig_position = view.position,
+            .orig_geometry = view.getGeometry(),
+            .orig_cursor = .{
+                .x = server.cursor.x,
+                .y = server.cursor.y,
+            },
+            .edges = event.edges,
+        };
+    }
+
+    fn commit(listener: *Listener(*c_void), data: *c_void) callconv(.C) void {
+        const view = @fieldParentPtr(View, "commit", listener);
+        if (view.xdg_surface.*.unnamed_0.toplevel.*.current.resizing) {
+            const edges = view.active_resize.edges;
+            if (edges & @intCast(u32, c.WLR_EDGE_LEFT) != 0) {
+                const delta_width = view.active_resize.orig_geometry.width - view.getGeometry().width;
+                view.position.x = view.active_resize.orig_position.x + delta_width;
+            }
+            if (edges & @intCast(u32, c.WLR_EDGE_TOP) != 0) {
+                const delta_height = view.active_resize.orig_geometry.height - view.getGeometry().height;
+                view.position.y = view.active_resize.orig_position.y + delta_height;
+            }
+        }
     }
 };
 
