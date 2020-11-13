@@ -590,8 +590,10 @@ const Server = struct {
                 const toplevel = xdg_surface.unnamed_0.toplevel;
                 view.request_move.notify = View.xdgToplevelRequestMove;
                 view.request_resize.notify = View.xdgToplevelRequestResize;
+                view.request_maximize.notify = View.xdgToplevelRequestMaximize;
                 wl_signal_add(&toplevel.*.events.request_move, &view.request_move);
                 wl_signal_add(&toplevel.*.events.request_resize, &view.request_resize);
+                wl_signal_add(&toplevel.*.events.request_maximize, &view.request_maximize);
 
                 view.commit.notify = View.commit;
                 wl_signal_add(&xdg_surface.surface.*.events.commit, &view.commit);
@@ -818,11 +820,24 @@ const View = struct {
         edges: u32,
     } = undefined,
 
+    state_before_maximize: struct {
+        valid: bool,
+        position: Vec2,
+        width: f64,
+        height: f64,
+    } = .{
+        .valid = false,
+        .position = undefined,
+        .width = undefined,
+        .height = undefined,
+    },
+
     map: Listener(*c.struct_wlr_xdg_surface) = .{},
     unmap: Listener(*c.struct_wlr_xdg_surface) = .{},
     destroy: Listener(*c.struct_wlr_xdg_surface) = .{},
     request_move: Listener(*c.struct_wlr_xdg_toplevel_move_event) = .{},
     request_resize: Listener(*c.struct_wlr_xdg_toplevel_resize_event) = .{},
+    request_maximize: Listener(*c.wlr_xdg_surface) = .{},
     commit: Listener(*c_void) = .{},
 
     link: List(@This(), "link") = .{},
@@ -892,6 +907,7 @@ const View = struct {
     fn xdgToplevelRequestMove(listener: *Listener(*c.struct_wlr_xdg_toplevel_move_event), event: *c.struct_wlr_xdg_toplevel_move_event) callconv(.C) void {
         // TODO(dh): check the serial against recent button presses, to prevent bad clients from invoking this at will
         // TODO(dh): only allow this request from the focussed client
+        // TODO(dh): unmaximize the window if it is maximized
         const view = @fieldParentPtr(View, "request_move", listener);
         const server = view.server;
 
@@ -932,9 +948,47 @@ const View = struct {
         };
     }
 
+    fn xdgToplevelRequestMaximize(listener: *Listener(*c.wlr_xdg_surface), surface: *c.wlr_xdg_surface) callconv(.C) void {
+        const view = @fieldParentPtr(View, "request_maximize", listener);
+
+        if (surface.unnamed_0.toplevel.*.client_pending.maximized) {
+            if (surface.unnamed_0.toplevel.*.current.maximized) {
+                // TODO(dh): make sure wlroots doesn't swallow this event
+                _ = c.wlr_xdg_toplevel_set_maximized(surface, true);
+                return;
+            }
+
+            const output = c.wlr_output_layout_output_at(view.server.output_layout, view.position.x, view.position.y);
+            if (output == null) {
+                return;
+            }
+            const geom = view.getGeometry();
+            view.state_before_maximize = .{
+                .valid = true,
+                .position = view.position,
+                .width = geom.width,
+                .height = geom.height,
+            };
+
+            const extents = c.wlr_output_layout_get_box(view.server.output_layout, output).*;
+            _ = c.wlr_xdg_toplevel_set_maximized(surface, true);
+            _ = c.wlr_xdg_toplevel_set_size(surface, @intCast(u32, extents.width), @intCast(u32, extents.height));
+        } else {
+            if (!surface.unnamed_0.toplevel.*.current.maximized) {
+                // TODO(dh): make sure wlroots doesn't swallow this event
+                _ = c.wlr_xdg_toplevel_set_maximized(surface, false);
+                return;
+            }
+
+            _ = c.wlr_xdg_toplevel_set_maximized(surface, false);
+            // TODO(dh): what happens if the client changed its geometry in the meantime? our old width and height will no longer be correct.
+            _ = c.wlr_xdg_toplevel_set_size(surface, @floatToInt(u32, @round(view.state_before_maximize.width)), @floatToInt(u32, @round(view.state_before_maximize.height)));
+        }
+    }
+
     fn commit(listener: *Listener(*c_void), data: *c_void) callconv(.C) void {
         const view = @fieldParentPtr(View, "commit", listener);
-        if (view.xdg_surface.*.unnamed_0.toplevel.*.current.resizing) {
+        if (view.xdg_surface.unnamed_0.toplevel.*.current.resizing) {
             const edges = view.active_resize.edges;
             if (edges & @intCast(u32, c.WLR_EDGE_LEFT) != 0) {
                 const delta_width = view.active_resize.orig_geometry.width - view.getGeometry().width;
@@ -944,6 +998,13 @@ const View = struct {
                 const delta_height = view.active_resize.orig_geometry.height - view.getGeometry().height;
                 view.position.y = view.active_resize.orig_position.y + delta_height;
             }
+        }
+        if (view.xdg_surface.unnamed_0.toplevel.*.current.maximized) {
+            // OPT(dh): this is causing unnecessary memory writes on each commit
+            view.position = .{ .x = 0, .y = 0 };
+        } else if (view.state_before_maximize.valid) {
+            view.position = view.state_before_maximize.position;
+            view.state_before_maximize.valid = false;
         }
     }
 };
