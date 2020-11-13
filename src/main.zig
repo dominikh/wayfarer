@@ -17,6 +17,8 @@ const stdout = std.io.getStdout().writer();
 
 // Coordinate systems
 //
+// Absolute pointer space:
+//
 // Output space:
 //
 // Extends from (0, 0) to (1,1). Top left corner is (0, 0), bottom
@@ -276,9 +278,16 @@ fn wl_signal_add(signal: *c.struct_wl_signal, listener: anytype) void {
     c.wl_signal_add(signal, @ptrCast(*c.struct_wl_listener, listener));
 }
 
-const Position = struct {
+const Vec2 = struct {
     x: f64 = 0,
     y: f64 = 0,
+};
+
+const Box = struct {
+    x: f64 = 0,
+    y: f64 = 0,
+    width: f64 = 0,
+    height: f64 = 0,
 };
 
 const Server = struct {
@@ -292,10 +301,16 @@ const Server = struct {
         Normal: void,
         Move: struct {
             grabbed_view: *View,
-            grab_offset: Position,
+            orig_position: Vec2,
+            // The cursor position when the grab was initiated, in layout coordinates
+            orig_cursor: Vec2,
         },
         Resize: struct {
             grabbed_view: *View,
+            orig_position: Vec2,
+            orig_geometry: Box,
+            // The cursor position when the grab was initiated, in layout coordinates
+            orig_cursor: Vec2,
             edges: u32,
         },
     };
@@ -402,8 +417,8 @@ const Server = struct {
     }
 
     fn processCursorMotion(server: *Server, time_msec: u32) void {
-        const lx = server.cursor.x;
-        const ly = server.cursor.y;
+        const cursor_lx = server.cursor.x;
+        const cursor_ly = server.cursor.y;
 
         switch (server.cursor_mode) {
             .Normal => {
@@ -415,7 +430,7 @@ const Server = struct {
                 var surface: ?*c.struct_wlr_surface = undefined;
                 var sx: f64 = undefined;
                 var sy: f64 = undefined;
-                if (server.findViewUnderCursor(lx, ly, &surface, &sx, &sy)) |view| {
+                if (server.findViewUnderCursor(cursor_lx, cursor_ly, &surface, &sx, &sy)) |view| {
                     // XXX set focus only if the view changed from last time
                     if (view.server.seat.getKeyboard()) |keyboard| {
                         server.seat.keyboardNotifyEnter(surface.?, &keyboard.*.keycodes, keyboard.*.num_keycodes, &keyboard.*.modifiers);
@@ -437,17 +452,60 @@ const Server = struct {
             },
 
             .Move => |value| {
+                const delta_lx = cursor_lx - value.orig_cursor.x;
+                const delta_ly = cursor_ly - value.orig_cursor.y;
                 value.grabbed_view.position = .{
-                    .x = lx - value.grab_offset.x,
-                    .y = ly - value.grab_offset.y,
+                    .x = value.orig_position.x + delta_lx,
+                    .y = value.orig_position.y + delta_ly,
                 };
             },
 
             .Resize => |value| {
-                const width = lx - value.grabbed_view.position.x;
-                const height = ly - value.grabbed_view.position.y;
-                // XXX who is responsible for honoring the client's min and max size? wlroots or us?
-                _ = c.wlr_xdg_toplevel_set_size(value.grabbed_view.xdg_surface, @floatToInt(u32, @round(width)), @floatToInt(u32, @round(height)));
+                const delta_lx = cursor_lx - value.orig_cursor.x;
+                const delta_ly = cursor_ly - value.orig_cursor.y;
+
+                var new_box = Box{
+                    .x = value.orig_position.x,
+                    .y = value.orig_position.y,
+                    .width = value.orig_geometry.width,
+                    .height = value.orig_geometry.height,
+                };
+                if (value.edges & @intCast(u32, c.WLR_EDGE_LEFT) != 0) {
+                    new_box.x = value.orig_position.x + delta_lx;
+                    new_box.width = value.orig_geometry.width - delta_lx;
+                } else if (value.edges & @intCast(u32, c.WLR_EDGE_RIGHT) != 0) {
+                    new_box.width = value.orig_geometry.width + delta_lx;
+                }
+                if (value.edges & @intCast(u32, c.WLR_EDGE_TOP) != 0) {
+                    new_box.y = value.orig_position.y + delta_ly;
+                    new_box.height = value.orig_geometry.height - delta_ly;
+                } else if (value.edges & @intCast(u32, c.WLR_EDGE_BOTTOM) != 0) {
+                    new_box.height = value.orig_geometry.height + delta_ly;
+                }
+
+                const state = value.grabbed_view.xdg_surface.unnamed_0.toplevel.*.current;
+                const min_width = @intToFloat(f64, state.min_width);
+                const min_height = @intToFloat(f64, state.min_height);
+                if (new_box.width < min_width) {
+                    if (value.edges & @intCast(u32, c.WLR_EDGE_LEFT) != 0) {
+                        new_box.x -= min_width - new_box.width;
+                    }
+                    new_box.width = min_width;
+                }
+                if (new_box.height < min_height) {
+                    if (value.edges & @intCast(u32, c.WLR_EDGE_TOP) != 0) {
+                        new_box.y -= min_height - new_box.height;
+                    }
+                    new_box.height = min_height;
+                }
+
+                // XXX don't change the view's coordinates right away.
+                // only change them once the client has commited a new
+                // surface at the new size.
+                value.grabbed_view.position.x = new_box.x;
+                value.grabbed_view.position.y = new_box.y;
+
+                _ = c.wlr_xdg_toplevel_set_size(value.grabbed_view.xdg_surface, @floatToInt(u32, @round(new_box.width)), @floatToInt(u32, @round(new_box.height)));
             },
         }
     }
@@ -764,7 +822,7 @@ const View = struct {
     server: *Server,
     xdg_surface: *c.struct_wlr_xdg_surface,
     // the view's position in layout space
-    position: Position = .{},
+    position: Vec2 = .{},
     rotation: f32 = 0, // in radians
     mapped: bool = false,
 
@@ -796,16 +854,20 @@ const View = struct {
         return m;
     }
 
-    fn getGeometry(view: *const View) c.wlr_box {
+    fn getGeometry(view: *const View) Box {
         // TODO(dh): de-c-ify all of this
         var box: c.wlr_box = undefined;
         c.wlr_surface_get_extends(view.xdg_surface.surface, &box);
-        if (view.xdg_surface.geometry.width == 0) {
-            return box;
+        if (view.xdg_surface.geometry.width != 0) {
+            // XXX handle return value
+            _ = c.wlr_box_intersection(&box, &view.xdg_surface.geometry, &box);
         }
-        // XXX handle return value
-        _ = c.wlr_box_intersection(&box, &view.xdg_surface.geometry, &box);
-        return box;
+        return .{
+            .x = @intToFloat(f64, box.x),
+            .y = @intToFloat(f64, box.y),
+            .width = @intToFloat(f64, box.width),
+            .height = @intToFloat(f64, box.height),
+        };
     }
 
     fn width(surface: *const View) i32 {
@@ -845,9 +907,10 @@ const View = struct {
         server.cursor_mode = .{
             .Move = .{
                 .grabbed_view = view,
-                .grab_offset = .{
-                    .x = server.cursor.x - view.position.x,
-                    .y = server.cursor.y - view.position.y,
+                .orig_position = view.position,
+                .orig_cursor = .{
+                    .x = server.cursor.x,
+                    .y = server.cursor.y,
                 },
             },
         };
@@ -859,10 +922,17 @@ const View = struct {
         const view = @fieldParentPtr(View, "request_resize", listener);
         const server = view.server;
 
+        // XXX clear focus
         _ = c.wlr_xdg_toplevel_set_resizing(view.xdg_surface, true);
         server.cursor_mode = .{
             .Resize = .{
                 .grabbed_view = view,
+                .orig_position = view.position,
+                .orig_geometry = view.getGeometry(),
+                .orig_cursor = .{
+                    .x = server.cursor.x,
+                    .y = server.cursor.y,
+                },
                 .edges = event.edges,
             },
         };
@@ -911,7 +981,7 @@ const Keyboard = struct {
 };
 
 pub fn main() !void {
-    c.wlr_log_init(c.enum_wlr_log_importance.WLR_DEBUG, null);
+    // c.wlr_log_init(c.enum_wlr_log_importance.WLR_DEBUG, null);
     var server: Server = undefined;
     server.init();
 
