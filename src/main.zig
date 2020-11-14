@@ -1,5 +1,5 @@
 const std = @import("std");
-const matrix = @import("matrix.zig");
+const Matrix = @import("Matrix.zig");
 const trace = @import("tracy.zig").trace;
 const allocator = std.heap.c_allocator;
 
@@ -766,8 +766,8 @@ const Output = struct {
 
     link: List(@This(), "link"),
 
-    fn transform_matrix(output: *Output) matrix.Matrix {
-        return @bitCast(matrix.Matrix, output.output.transform_matrix);
+    fn transform_matrix(output: *Output) Matrix {
+        return @bitCast(Matrix, output.output.transform_matrix);
     }
 
     fn newOutputNotify(listener: *Listener(*c.struct_wlr_output), output: *c.struct_wlr_output) callconv(.C) void {
@@ -871,15 +871,15 @@ const Output = struct {
         // TODO(dh): support outputs not positioned at (0, 0) in layout space
         // TODO(dh): support buffers that don't match surface coordinates
 
-        var m = matrix.Identity;
-        matrix.translate(&m, @floatCast(f32, view.position.x + @intToFloat(f64, sx)), @floatCast(f32, view.position.y + @intToFloat(f64, sy)));
-        matrix.scale(&m, @intToFloat(f32, surface.?.current.width), @intToFloat(f32, surface.?.current.height));
+        var m: Matrix = Matrix.Identity;
+        m.translate(@floatCast(f32, view.position.x + @intToFloat(f64, sx)), @floatCast(f32, view.position.y + @intToFloat(f64, sy)));
+        m.scale(@intToFloat(f32, surface.?.current.width), @intToFloat(f32, surface.?.current.height));
 
         // var m = view.transformation_matrix();
-        matrix.mul(&m, output.transform_matrix(), m);
+        m.mul(output.transform_matrix(), m);
 
         // XXX handle failure
-        _ = c.wlr_render_texture_with_matrix(renderer, texture, matrix.linear(&m), 1);
+        _ = c.wlr_render_texture_with_matrix(renderer, texture, m.linear(), 1);
         // XXX make sure the two timespec structs are actually ABI compatible
         c.wlr_surface_send_frame_done(surface, @ptrCast(*c.struct_timespec, &rdata.now));
     }
@@ -933,7 +933,7 @@ const View = struct {
     link: List(@This(), "link") = .{},
 
     // transformation_matrix maps the view to layout space.
-    fn transformation_matrix(view: *const View) matrix.Matrix {
+    fn transformation_matrix(view: *const View) Matrix {
         // TODO(dh): support buffer transforms
 
         // OPT(dh): cache this computation, update the matrix when
@@ -944,11 +944,11 @@ const View = struct {
         // translate
         // rotate
         // scale
-        var m = matrix.Identity;
-        matrix.translate(&m, @floatCast(f32, x), @floatCast(f32, y));
+        var m: Matrix = Matrix.Identity;
+        m.translate(@floatCast(f32, x), @floatCast(f32, y));
         // TODO(dh): rotation should probably be around the center, not the origin
-        matrix.rotate(&m, view.rotation);
-        matrix.scale(&m, @intToFloat(f32, view.width()), @intToFloat(f32, view.height()));
+        m.rotate(view.rotation);
+        m.scale(@intToFloat(f32, view.width()), @intToFloat(f32, view.height()));
         return m;
     }
 
