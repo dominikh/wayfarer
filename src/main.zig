@@ -971,10 +971,13 @@ const View = struct {
     }
     fn xdgToplevelRequestMove(listener: *Listener(*c.struct_wlr_xdg_toplevel_move_event), event: *c.struct_wlr_xdg_toplevel_move_event) callconv(.C) void {
         // TODO(dh): check the serial against recent button presses, to prevent bad clients from invoking this at will
-        // TODO(dh): only allow this request from the focussed client
         // TODO(dh): unmaximize the window if it is maximized
         const view = @fieldParentPtr(View, "request_move", listener);
         const server = view.server;
+
+        // bring the view to the front
+        view.link.remove();
+        server.views.insert(&view.link);
 
         server.cursor_mode = .{
             .Move = .{
