@@ -581,9 +581,7 @@ const Server = struct {
         // OPT(dh): cache check against views' transforms by finding
         // the rectangular (non-rotated) area that views occupy
         var iter = server.views.iterate();
-        while (iter.hasMore()) {
-            const view = iter.next().?;
-
+        while (iter.next()) |view| {
             // XXX support rotation and scaling
             const view_sx = lx - view.position.x;
             const view_sy = ly - view.position.y;
@@ -837,8 +835,7 @@ const Output = struct {
         c.wlr_renderer_clear(renderer, color[0..4]);
 
         var iter = server.views.iterate_reverse();
-        while (iter.hasMore()) {
-            const view = iter.next().?;
+        while (iter.next()) |view| {
             if (!view.xdg_surface.mapped) {
                 continue;
             }
