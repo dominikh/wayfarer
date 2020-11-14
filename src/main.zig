@@ -244,40 +244,42 @@ const c = @cImport({
     // @cInclude("wlr/types/wlr_xdg_shell_v6.h");
 });
 
-fn ListIterator(comptime T: type, comptime forward: bool) type {
-    return struct {
-        head: *T,
-        cur: *T,
-
-        fn hasMore(iter: *@This()) bool {
-            if (forward) {
-                return iter.cur.next != iter.head;
-            } else {
-                return iter.cur.prev != iter.head;
-            }
-        }
-        fn next(iter: *@This()) ?*T.elem {
-            if (!iter.hasMore()) {
-                return null;
-            }
-
-            if (forward) {
-                iter.cur = iter.cur.next;
-                return iter.cur.container();
-            } else {
-                iter.cur = iter.cur.prev;
-                return iter.cur.container();
-            }
-        }
-    };
-}
-
 fn List(comptime T: type, comptime element_link_field: []const u8) type {
     return struct {
+        const Self = @This();
+
         prev: *@This() = undefined,
         next: *@This() = undefined,
 
         const elem = T;
+
+        fn Iterator(comptime forward: bool) type {
+            return struct {
+                head: *Self,
+                cur: *Self,
+
+                fn hasMore(iter: *@This()) bool {
+                    if (forward) {
+                        return iter.cur.next != iter.head;
+                    } else {
+                        return iter.cur.prev != iter.head;
+                    }
+                }
+                fn next(iter: *@This()) ?*Self.elem {
+                    if (!iter.hasMore()) {
+                        return null;
+                    }
+
+                    if (forward) {
+                        iter.cur = iter.cur.next;
+                        return iter.cur.container();
+                    } else {
+                        iter.cur = iter.cur.prev;
+                        return iter.cur.container();
+                    }
+                }
+            };
+        }
 
         fn init(self: *@This()) void {
             self.prev = self;
@@ -288,14 +290,14 @@ fn List(comptime T: type, comptime element_link_field: []const u8) type {
             return self.next == self;
         }
 
-        fn iterate(self: *@This()) ListIterator(@This(), true) {
+        fn iterate(self: *@This()) Iterator(true) {
             return .{
                 .head = self,
                 .cur = self,
             };
         }
 
-        fn iterate_reverse(self: *@This()) ListIterator(@This(), false) {
+        fn iterate_reverse(self: *@This()) Iterator(false) {
             return .{
                 .head = self,
                 .cur = self,
