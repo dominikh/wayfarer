@@ -409,7 +409,7 @@ const Server = struct {
         server.pointers.init();
     }
 
-    fn update_seat_capabilities(server: *const Server) void {
+    fn updateSeatCapabilities(server: *const Server) void {
         var caps: c_int = 0;
         if (!server.pointers.isEmpty()) {
             caps |= c.WL_SEAT_CAPABILITY_POINTER;
@@ -632,7 +632,7 @@ const Server = struct {
             },
         }
 
-        server.update_seat_capabilities();
+        server.updateSeatCapabilities();
     }
 
     fn newXdgSurface(listener: *Listener(*c.struct_wlr_xdg_surface), xdg_surface: *c.struct_wlr_xdg_surface) callconv(.C) void {
