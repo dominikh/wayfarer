@@ -81,7 +81,8 @@ const stdout = std.io.getStdout().writer();
 // XXX is it me, or does wlroots not let us change surface state
 //   atomically? e.g. setting the size and setting activated both
 //   schedule configure events
-// TODO(dh): send scroll events
+
+// TODO(dh): input handling: support swipe, pinch, touch and tablet
 
 // xdg_wm_base
 //   requests
@@ -381,7 +382,6 @@ const Server = struct {
     output_layout: *c.struct_wlr_output_layout,
 
     xdg_shell: *c.struct_wlr_xdg_shell,
-    new_xdg_surface: Listener(*c.struct_wlr_xdg_surface),
     views: List(View, "link"),
 
     cursor: *c.struct_wlr_cursor,
@@ -395,11 +395,13 @@ const Server = struct {
     pointers: List(Pointer, "link"),
     keyboards: List(Keyboard, "link"),
 
+    new_xdg_surface: Listener(*c.struct_wlr_xdg_surface),
     new_output: Listener(*c.struct_wlr_output),
     new_input: Listener(*c.struct_wlr_input_device),
     cursor_motion: Listener(*c.struct_wlr_event_pointer_motion),
     cursor_motion_absolute: Listener(*c.struct_wlr_event_pointer_motion_absolute),
     cursor_button: Listener(*c.struct_wlr_event_pointer_button),
+    cursor_axis: Listener(*c.wlr_event_pointer_axis),
     cursor_frame: Listener(*c_void),
 
     fn init(server: *Server) void {
@@ -467,11 +469,25 @@ const Server = struct {
         std.debug.print("cursor motion\n", .{});
     }
 
-    //TypeOfField(@This(), "cursor_motion_absolute")
     fn cursorMotionAbsolute(listener: *Listener(*c.struct_wlr_event_pointer_motion_absolute), event: *c.struct_wlr_event_pointer_motion_absolute) callconv(.C) void {
         const server = @fieldParentPtr(Server, "cursor_motion_absolute", listener);
         c.wlr_cursor_warp_absolute(server.cursor, event.device, event.x, event.y);
         server.processCursorMotion(event.time_msec);
+    }
+
+    fn cursorAxis(listener: *Listener(*c.struct_wlr_event_pointer_axis), event: *c.struct_wlr_event_pointer_axis) callconv(.C) void {
+        const server = @fieldParentPtr(Server, "cursor_axis", listener);
+        if (server.seat.seat.pointer_state.focused_surface) |surface| {
+            server.seat.pointerNotifyAxis(
+                event.time_msec,
+                event.orientation,
+                event.delta,
+                event.delta_discrete,
+                event.source,
+            );
+        } else {
+            // TODO(dh): let the compositor handle axis events
+        }
     }
 
     fn processCursorMotion(server: *Server, time_msec: u32) void {
@@ -716,6 +732,17 @@ const Seat = struct {
 
     fn pointerNotifyMotion(seat: *const Seat, time_msec: u32, sx: f64, sy: f64) void {
         c.wlr_seat_pointer_notify_motion(seat.seat, time_msec, sx, sy);
+    }
+
+    fn pointerNotifyAxis(
+        seat: *const Seat,
+        time_msec: u32,
+        orientation: c.enum_wlr_axis_orientation,
+        value: f64,
+        value_discrete: i32,
+        source: c.enum_wlr_axis_source,
+    ) void {
+        c.wlr_seat_pointer_notify_axis(seat.seat, time_msec, orientation, value, value_discrete, source);
     }
 
     fn pointerNotifyFrame(seat: *const Seat) void {
@@ -1168,10 +1195,12 @@ pub fn main() !void {
     server.cursor_motion.notify = Server.cursorMotion;
     server.cursor_motion_absolute.notify = Server.cursorMotionAbsolute;
     server.cursor_button.notify = Server.cursorButton;
+    server.cursor_axis.notify = Server.cursorAxis;
     server.cursor_frame.notify = Server.cursorFrame;
     wl_signal_add(&server.cursor.events.motion, &server.cursor_motion);
     wl_signal_add(&server.cursor.events.motion_absolute, &server.cursor_motion_absolute);
     wl_signal_add(&server.cursor.events.button, &server.cursor_button);
+    wl_signal_add(&server.cursor.events.axis, &server.cursor_axis);
     wl_signal_add(&server.cursor.events.frame, &server.cursor_frame);
 
     server.new_input.notify = Server.newInput;
