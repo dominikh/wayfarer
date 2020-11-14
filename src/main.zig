@@ -370,7 +370,7 @@ const Server = struct {
         Move: struct {
             grabbed_view: *View,
             orig_position: Vec2,
-            // The cursor position when the grab was initiated, in layout coordinates
+            /// The cursor position when the grab was initiated, in layout coordinates
             orig_cursor: Vec2,
         },
         Resize: *View,
@@ -575,7 +575,7 @@ const Server = struct {
         }
     }
 
-    // findViewUnderCursor finds the view and surface at position (lx, ly), respecting input regions.
+    /// findViewUnderCursor finds the view and surface at position (lx, ly), respecting input regions.
     fn findViewUnderCursor(server: *Server, lx: f64, ly: f64, surface: *?*c.struct_wlr_surface, sx: *f64, sy: *f64) ?*View {
         // OPT(dh): test against the previously found view. most of
         // the time, the cursor moves within a view.
@@ -907,7 +907,7 @@ const View = struct {
     active_resize: struct {
         orig_position: Vec2,
         orig_geometry: Box,
-        // The cursor position when the grab was initiated, in layout coordinates
+        /// The cursor position when the grab was initiated, in layout coordinates
         orig_cursor: Vec2,
         edges: u32,
     } = undefined,
@@ -934,7 +934,7 @@ const View = struct {
 
     link: List(@This(), "link") = .{},
 
-    // transformation_matrix maps the view to layout space.
+    /// transformation_matrix maps the view to layout space.
     fn transformation_matrix(view: *const View) Matrix {
         // TODO(dh): support buffer transforms
 
