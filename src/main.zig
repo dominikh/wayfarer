@@ -15,6 +15,9 @@ const stdout = std.io.getStdout().writer();
 // Alternatively, multiple seats can be created, with devices assigned
 // to specific seats. Each seat gets its own input focus.
 
+// Resources
+// - https://ppaalanen.blogspot.com/2013/11/sub-surfaces-now.html
+
 // Coordinate systems
 //
 // Absolute pointer space:
@@ -78,6 +81,67 @@ const stdout = std.io.getStdout().writer();
 // XXX is it me, or does wlroots not let us change surface state
 //   atomically? e.g. setting the size and setting activated both
 //   schedule configure events
+
+// xdg_wm_base
+//   requests
+//   - [-] destroy
+//   - [-] create_positioner
+//   - [-] get_xdg_surface
+//   - [ ] pong
+//   events
+//   - [ ] ping
+//
+// xdg_positioner
+//   requests
+//   - [-] destroy
+//   - [ ] set_size
+//   - [ ] set_anchor_rect
+//   - [ ] set_anchor
+//   - [ ] set_gravity
+//   - [ ] set_constraint_adjustment
+//   - [ ] set_offset
+//   - [ ] set_reactive
+//   - [ ] set_parent_size
+//   - [ ] set_parent_configure
+//
+// xdg_surface
+//   requests
+//   - [-] destroy
+//   - [ ] get_toplevel
+//   - [ ] get_popup
+//   - [ ] set_window_geometry
+//   - [ ] ack_configure
+//   - [ ] configure
+//
+// xdg_toplevel
+//   requests
+//   - [-] destroy
+//   - [ ] set_parent
+//   - [-] set_title
+//   - [-] set_app_id
+//   - [ ] show_window_menu
+//   - [X] move
+//   - [X] resize
+//   - [X] set_max_size
+//   - [X] set_min_size
+//   - [X] set_maximized
+//   - [X] unset_maximized
+//   - [ ] set_fullscreen
+//   - [ ] unset_fullscreen
+//   - [ ] set_minimized
+//   events
+//   - [X] configure
+//   - [ ] close
+//
+// xdg_popup
+//   requests
+//   - [-] destroy
+//   - [ ] grab
+//   - [ ] reposition
+//   events
+//   - [ ] configure
+//   - [ ] popup_done
+//   - [ ] repositioned
 
 const c = @cImport({
     @cDefine("WLR_USE_UNSTABLE", {});
@@ -492,6 +556,7 @@ const Server = struct {
         }
     }
 
+    // findViewUnderCursor finds the view and surface at position (lx, ly), respecting input regions.
     fn findViewUnderCursor(server: *Server, lx: f64, ly: f64, surface: *?*c.struct_wlr_surface, sx: *f64, sy: *f64) ?*View {
         // OPT(dh): test against the previously found view. most of
         // the time, the cursor moves within a view.
@@ -953,7 +1018,7 @@ const View = struct {
 
         if (surface.unnamed_0.toplevel.*.client_pending.maximized) {
             if (surface.unnamed_0.toplevel.*.current.maximized) {
-                // TODO(dh): make sure wlroots doesn't swallow this event
+                // TODO(dh): make sure wlroots doesn't swallow this event. see https://github.com/swaywm/wlroots/issues/2330
                 _ = c.wlr_xdg_toplevel_set_maximized(surface, true);
                 return;
             }
@@ -975,7 +1040,7 @@ const View = struct {
             _ = c.wlr_xdg_toplevel_set_size(surface, @intCast(u32, extents.width), @intCast(u32, extents.height));
         } else {
             if (!surface.unnamed_0.toplevel.*.current.maximized) {
-                // TODO(dh): make sure wlroots doesn't swallow this event
+                // TODO(dh): make sure wlroots doesn't swallow this event. see https://github.com/swaywm/wlroots/issues/2330
                 _ = c.wlr_xdg_toplevel_set_maximized(surface, false);
                 return;
             }
