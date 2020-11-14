@@ -81,6 +81,7 @@ const stdout = std.io.getStdout().writer();
 // XXX is it me, or does wlroots not let us change surface state
 //   atomically? e.g. setting the size and setting activated both
 //   schedule configure events
+// TODO(dh): send scroll events
 
 // xdg_wm_base
 //   requests
@@ -965,9 +966,16 @@ const View = struct {
     }
 
     fn xdgSurfaceDestroy(listener: *Listener(*c.struct_wlr_xdg_surface), surface: *c.struct_wlr_xdg_surface) callconv(.C) void {
-        var view = @fieldParentPtr(View, "destroy", listener);
-        view.link.remove();
-        allocator.destroy(view);
+        switch (surface.role) {
+            .WLR_XDG_SURFACE_ROLE_TOPLEVEL => {
+                var view = @fieldParentPtr(View, "destroy", listener);
+                view.link.remove();
+                allocator.destroy(view);
+            },
+            else => {
+                // TODO(dh): handle other roles
+            },
+        }
     }
     fn xdgToplevelRequestMove(listener: *Listener(*c.struct_wlr_xdg_toplevel_move_event), event: *c.struct_wlr_xdg_toplevel_move_event) callconv(.C) void {
         // TODO(dh): check the serial against recent button presses, to prevent bad clients from invoking this at will
