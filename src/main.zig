@@ -339,7 +339,7 @@ fn Listener(comptime T: type) type {
     // TODO(dh): verify that T is a pointer type
     return extern struct {
         link: List(@This(), "link") = .{},
-        notify: fn (*Listener(T), T) callconv(.C) void = undefined,
+        notify: fn (*@This(), T) callconv(.C) void = undefined,
     };
 }
 
