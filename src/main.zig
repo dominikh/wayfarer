@@ -246,7 +246,7 @@ const c = @cImport({
 });
 
 fn List(comptime T: type, comptime element_link_field: []const u8) type {
-    return struct {
+    return extern struct {
         const Self = @This();
 
         prev: *@This() = undefined,
@@ -336,14 +336,15 @@ fn TypeOfField(comptime T: type, comptime field: []const u8) type {
 }
 
 fn Listener(comptime T: type) type {
-    return struct {
+    // TODO(dh): verify that T is a pointer type
+    return extern struct {
         link: List(@This(), "link") = .{},
         notify: fn (*Listener(T), T) callconv(.C) void = undefined,
     };
 }
 
 fn wl_signal_add(signal: *c.struct_wl_signal, listener: anytype) void {
-    // XXX verify that listener is a *Listener(T)
+    // TODO(dh): verify that listener is a *Listener(T)
     c.wl_signal_add(signal, @ptrCast(*c.struct_wl_listener, listener));
 }
 
