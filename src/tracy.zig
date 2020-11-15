@@ -8,7 +8,55 @@ extern fn ___tracy_emit_zone_begin_callstack(
     active: c_int,
 ) ___tracy_c_zone_context;
 
+extern fn ___tracy_emit_zone_begin(
+    srcloc: *const ___tracy_source_location_data,
+    active: c_int,
+) ___tracy_c_zone_context;
+
 extern fn ___tracy_emit_zone_end(ctx: ___tracy_c_zone_context) void;
+extern fn ___tracy_emit_frame_mark(?[*:0]const u8) void;
+extern fn ___tracy_emit_frame_mark_start(?[*:0]const u8) void;
+extern fn ___tracy_emit_frame_mark_end(?[*:0]const u8) void;
+extern fn ___tracy_emit_memory_alloc_callstack(ptr: *const c_void, size: usize, depth: c_int, secure: c_int) void;
+extern fn ___tracy_emit_memory_free_callstack(ptr: *const c_void, depth: c_int, secure: c_int) void;
+extern fn ___tracy_emit_memory_alloc(ptr: *const c_void, size: usize, secure: c_int) void;
+extern fn ___tracy_emit_memory_free(ptr: *const c_void, secure: c_int) void;
+
+pub fn frame(name: ?[*:0]const u8) void {
+    if (!enable) return;
+    ___tracy_emit_frame_mark(name);
+}
+
+pub fn frameStart(name: ?[*:0]const u8) void {
+    if (!enable) return;
+    ___tracy_emit_frame_mark_start(name);
+}
+
+pub fn frameEnd(name: ?[*:0]const u8) void {
+    if (!enable) return;
+    ___tracy_emit_frame_mark_end(name);
+}
+
+// TODO(dh): stack capture doesn't seem to be working at the moment, so disable it.
+const stack_depth = 0;
+
+inline fn _alloc(ptr: []u8, size: usize) void {
+    if (!enable) return;
+    if (stack_depth > 0) {
+        ___tracy_emit_memory_alloc_callstack(ptr.ptr, size, stack_depth, 0);
+    } else {
+        ___tracy_emit_memory_alloc(ptr.ptr, size, 0);
+    }
+}
+
+inline fn _free(ptr: []u8) void {
+    if (!enable) return;
+    if (stack_depth > 0) {
+        ___tracy_emit_memory_free_callstack(ptr.ptr, stack_depth, 0);
+    } else {
+        ___tracy_emit_memory_free(ptr.ptr, 0);
+    }
+}
 
 pub const ___tracy_source_location_data = extern struct {
     name: ?[*:0]const u8,
@@ -32,14 +80,57 @@ pub const Ctx = if (enable) ___tracy_c_zone_context else struct {
 };
 
 pub inline fn trace(comptime src: std.builtin.SourceLocation) Ctx {
+    return traceName(src, null);
+}
+
+pub inline fn traceName(comptime src: std.builtin.SourceLocation, comptime name: ?[*:0]const u8) Ctx {
     if (!enable) return .{};
 
     const loc: ___tracy_source_location_data = .{
-        .name = null,
+        .name = name,
         .function = src.fn_name.ptr,
         .file = src.file.ptr,
         .line = src.line,
         .color = 0,
     };
-    return ___tracy_emit_zone_begin_callstack(&loc, 1, 1);
+    if (stack_depth > 0) {
+        return ___tracy_emit_zone_begin_callstack(&loc, stack_depth, 1);
+    } else {
+        return ___tracy_emit_zone_begin(&loc, 1);
+    }
 }
+
+pub const Allocator = struct {
+    allocator: std.mem.Allocator,
+    orig: *std.mem.Allocator,
+    // TODO(dh): Tracy's C API doesn't currently expose named memory pools, so we can't make use of this yetc
+    name: ?[*:0]const u8,
+
+    pub fn init(orig: *std.mem.Allocator, name: ?[*:0]const u8) Allocator {
+        return .{
+            .allocator = .{
+                .allocFn = allocFn,
+                .resizeFn = resizeFn,
+            },
+            .orig = orig,
+            .name = name,
+        };
+    }
+
+    fn allocFn(ptr: *std.mem.Allocator, arg1: usize, arg2: u29, arg3: u29, arg4: usize) std.mem.Allocator.Error![]u8 {
+        const alloc = @fieldParentPtr(Allocator, "allocator", ptr);
+        const ret = try alloc.orig.allocFn(alloc.orig, arg1, arg2, arg3, arg4);
+        _alloc(ret, ret.len);
+        return ret;
+    }
+
+    fn resizeFn(ptr: *std.mem.Allocator, arg1: []u8, arg2: u29, new_size: usize, arg4: u29, arg5: usize) std.mem.Allocator.Error!u64 {
+        const alloc = @fieldParentPtr(Allocator, "allocator", ptr);
+        const ret = try alloc.orig.resizeFn(alloc.orig, arg1, arg2, new_size, arg4, arg5);
+        _free(arg1);
+        if (new_size != 0) {
+            _alloc(arg1, ret);
+        }
+        return ret;
+    }
+};

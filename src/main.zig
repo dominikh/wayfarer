@@ -1,7 +1,8 @@
 const std = @import("std");
 const Matrix = @import("Matrix.zig");
-const trace = @import("tracy.zig").trace;
-const allocator = std.heap.c_allocator;
+const tracy = @import("tracy.zig");
+var allocator_state = tracy.Allocator.init(std.heap.c_allocator, "C allocator");
+const allocator = &allocator_state.allocator;
 
 const stdout = std.io.getStdout().writer();
 
@@ -765,6 +766,7 @@ const Output = struct {
 
     destroy: Listener(*c.struct_wlr_output),
     frame: Listener(*c.struct_wlr_output),
+    present: Listener(*c_void),
 
     link: List(@This(), "link"),
 
@@ -794,8 +796,10 @@ const Output = struct {
 
         our_output.destroy.notify = Output.destroyNotify;
         our_output.frame.notify = Output.frameNotify;
+        our_output.present.notify = Output.present;
         wl_signal_add(&output.events.destroy, &our_output.destroy);
         wl_signal_add(&output.events.frame, &our_output.frame);
+        wl_signal_add(&output.events.present, &our_output.present);
 
         c.wlr_output_layout_add_auto(server.output_layout, output);
     }
@@ -812,8 +816,8 @@ const Output = struct {
     }
 
     fn frameNotify(listener: *Listener(*c.struct_wlr_output), output: *c.struct_wlr_output) callconv(.C) void {
-        const tracy = trace(@src());
-        defer tracy.end();
+        const tracectx = tracy.trace(@src());
+        defer tracectx.end();
 
         const our_output = @fieldParentPtr(Output, "frame", listener);
         const server = our_output.server;
@@ -853,13 +857,18 @@ const Output = struct {
         c.wlr_output_render_software_cursors(our_output.output, null);
 
         c.wlr_renderer_end(renderer);
-        if (!c.wlr_output_commit(our_output.output)) {
-            // TODO(dh): why can this fail?
-            return;
-        }
+        // TODO(dh): why can this fail?
+        _ = c.wlr_output_commit(our_output.output);
+    }
+
+    fn present(listener: *Listener(*c_void), output: *c_void) callconv(.C) void {
+        tracy.frame(null);
     }
 
     fn renderSurface(surface: ?*c.struct_wlr_surface, sx: c_int, sy: c_int, data: ?*c_void) callconv(.C) void {
+        const tracectx = tracy.trace(@src());
+        defer tracectx.end();
+
         const rdata = @ptrCast(*RenderData, @alignCast(@alignOf(*RenderData), data.?));
         const view = rdata.view;
         const output = rdata.output;
@@ -989,6 +998,7 @@ const View = struct {
     fn xdgSurfaceUnmap(listener: *Listener(*c.struct_wlr_xdg_surface), surface: *c.struct_wlr_xdg_surface) callconv(.C) void {
         // XXX cancel interactive move, resize, …
         const view = @fieldParentPtr(View, "unmap", listener);
+        // TODO(dh): if this was the surface with pointer focus, see if there's another window we can focus instead
     }
 
     fn xdgSurfaceDestroy(listener: *Listener(*c.struct_wlr_xdg_surface), surface: *c.struct_wlr_xdg_surface) callconv(.C) void {
@@ -1034,8 +1044,6 @@ const View = struct {
         // XXX clear focus
         _ = c.wlr_xdg_toplevel_set_resizing(view.xdg_surface, true);
 
-        // XXX do we need to wait with starting interactive resize
-        // until the client has acked it>
         server.cursor_mode = .{
             .Resize = view,
         };
