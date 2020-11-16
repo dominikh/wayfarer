@@ -25,16 +25,16 @@ pub const Surface = extern struct {
     pub extern fn wlr_surface_is_xdg_surface(surface: [*c]Surface) bool;
 
     /// enum wlr_surface_state_field
-    pub const enum_wlr_surface_state_field = extern enum(c_int) {
-        WLR_SURFACE_STATE_BUFFER = 1,
-        WLR_SURFACE_STATE_SURFACE_DAMAGE = 2,
-        WLR_SURFACE_STATE_BUFFER_DAMAGE = 4,
-        WLR_SURFACE_STATE_OPAQUE_REGION = 8,
-        WLR_SURFACE_STATE_INPUT_REGION = 16,
-        WLR_SURFACE_STATE_TRANSFORM = 32,
-        WLR_SURFACE_STATE_SCALE = 64,
-        WLR_SURFACE_STATE_FRAME_CALLBACK_LIST = 128,
-        WLR_SURFACE_STATE_VIEWPORT = 256,
+    pub const enum_wlr_surface_state_field = struct {
+        pub const WLR_SURFACE_STATE_BUFFER: c_int = 1;
+        pub const WLR_SURFACE_STATE_SURFACE_DAMAGE: c_int = 2;
+        pub const WLR_SURFACE_STATE_BUFFER_DAMAGE: c_int = 4;
+        pub const WLR_SURFACE_STATE_OPAQUE_REGION: c_int = 8;
+        pub const WLR_SURFACE_STATE_INPUT_REGION: c_int = 16;
+        pub const WLR_SURFACE_STATE_TRANSFORM: c_int = 32;
+        pub const WLR_SURFACE_STATE_SCALE: c_int = 64;
+        pub const WLR_SURFACE_STATE_FRAME_CALLBACK_LIST: c_int = 128;
+        pub const WLR_SURFACE_STATE_VIEWPORT: c_int = 256;
         _,
     };
 

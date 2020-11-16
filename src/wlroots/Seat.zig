@@ -72,6 +72,22 @@ pub const Seat = extern struct {
         data: ?*c_void,
     };
 
+    /// struct wlr_seat_keyboard_grab
+    pub const struct_wlr_seat_keyboard_grab = extern struct {
+        /// struct wlr_keyboard_grab_interface
+        pub const Interface = extern struct {
+            enter: ?fn ([*c]struct_wlr_seat_keyboard_grab, [*c]Surface, [*c]u32, usize, [*c]Keyboard.Modifiers) callconv(.C) void,
+            clear_focus: ?fn ([*c]struct_wlr_seat_keyboard_grab) callconv(.C) void,
+            key: ?fn ([*c]struct_wlr_seat_keyboard_grab, u32, u32, u32) callconv(.C) void,
+            modifiers: ?fn ([*c]struct_wlr_seat_keyboard_grab, [*c]Keyboard.Modifiers) callconv(.C) void,
+            cancel: ?fn ([*c]struct_wlr_seat_keyboard_grab) callconv(.C) void,
+        };
+
+        interface: [*c]const Interface,
+        seat: [*c]Seat,
+        data: ?*c_void,
+    };
+
     // struct wlr_seat_touch_grab
     pub const struct_wlr_seat_touch_grab = extern struct {
         pub const struct_wlr_touch_grab_interface = extern struct {
@@ -89,6 +105,11 @@ pub const Seat = extern struct {
 
     /// struct wlr_seat_client
     pub const Client = extern struct {
+        pub extern fn wlr_seat_client_for_wl_client(wlr_seat: *Seat, wl_client: ?*wayland.Client) [*c]struct_wlr_seat_client;
+        pub extern fn wlr_seat_client_from_pointer_resource(resource: [*c]wayland.Resource) [*c]struct_wlr_seat_client;
+        pub extern fn wlr_seat_client_from_resource(resource: [*c]wayland.Resource) [*c]struct_wlr_seat_client;
+        pub extern fn wlr_seat_client_next_serial(client: [*c]struct_wlr_seat_client) u32;
+
         client: ?*wayland.Client,
         seat: [*c]Seat,
         link: wayland.ListElement(Client, "link"), // wlr_seat::clients
@@ -114,7 +135,7 @@ pub const Seat = extern struct {
 
     /// struct wlr_seat_request_set_selection_event
     pub const struct_wlr_seat_request_set_selection_event = extern struct {
-        source: [*c]wlroots.struct_wlr_data_source,
+        source: [*c]wlroots.DataSource,
         serial: u32,
     };
 
@@ -126,7 +147,7 @@ pub const Seat = extern struct {
 
     /// struct wlr_seat_request_start_drag_event
     pub const struct_wlr_seat_request_start_drag_event = extern struct {
-        drag: [*c]wlroots.struct_wlr_drag,
+        drag: [*c]wlroots.Drag,
         origin: [*c]wlroots.Surface,
         serial: u32,
     };
@@ -177,8 +198,8 @@ pub const Seat = extern struct {
         keyboard_keymap: wayland.Listener(?*c_void),
         keyboard_repeat_info: wayland.Listener(?*c_void),
         surface_destroy: wayland.Listener(?*c_void),
-        grab: [*c]wlroots.struct_wlr_seat_keyboard_grab,
-        default_grab: [*c]wlroots.struct_wlr_seat_keyboard_grab,
+        grab: [*c]struct_wlr_seat_keyboard_grab,
+        default_grab: [*c]struct_wlr_seat_keyboard_grab,
         events: extern struct {
             focus_change: wayland.Signal(?*c_void),
         },
@@ -219,15 +240,15 @@ pub const Seat = extern struct {
     capabilities: u32,
     accumulated_capabilities: u32,
     last_event: std.os.timespec,
-    selection_source: [*c]wlroots.struct_wlr_data_source,
+    selection_source: [*c]wlroots.DataSource,
     selection_serial: u32,
-    selection_offers: wayland.List(wlroots.struct_wlr_data_offer, "link"),
+    selection_offers: wayland.List(wlroots.DataOffer, "link"),
     primary_selection_source: ?*wlroots.struct_wlr_primary_selection_source,
     primary_selection_serial: u32,
-    drag: [*c]wlroots.struct_wlr_drag,
-    drag_source: [*c]wlroots.struct_wlr_data_source,
+    drag: [*c]wlroots.Drag,
+    drag_source: [*c]wlroots.DataSource,
     drag_serial: u32,
-    drag_offers: wayland.List(wlroots.struct_wlr_data_offer, "link"),
+    drag_offers: wayland.List(wlroots.DataOffer, "link"),
     pointer_state: struct_wlr_seat_pointer_state,
     keyboard_state: struct_wlr_seat_keyboard_state,
     touch_state: struct_wlr_seat_touch_state,

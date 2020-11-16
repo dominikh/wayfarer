@@ -30,16 +30,16 @@ pub const XDGSurface = extern struct {
         _,
     };
 
-    client: [*c]wlroots.struct_wlr_xdg_client,
+    client: [*c]wlroots.XDGClient,
     resource: [*c]wayland.Resource,
     surface: *wlroots.Surface,
     link: wayland.ListElement(XDGSurface, "link"), // wlr_xdg_client::surfaces
     role: enum_wlr_xdg_surface_role,
     unnamed_0: extern union {
         toplevel: *wlroots.XDGToplevel,
-        popup: *wlroots.struct_wlr_xdg_popup,
+        popup: *wlroots.XDGPopup,
     },
-    popups: wayland.List(wlroots.struct_wlr_xdg_popup, "link"),
+    popups: wayland.List(wlroots.XDGPopup, "link"),
     added: bool,
     configured: bool,
     mapped: bool,

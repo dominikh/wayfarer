@@ -13,7 +13,7 @@ pub const Renderer = extern struct {
         _,
     };
 
-    pub extern fn wlr_renderer_autocreate(egl: [*c]wlroots.struct_wlr_egl, platform: egl.EGLenum, remote_display: ?*c_void, config_attribs: [*c]egl.EGLint, visual_id: egl.EGLint) [*c]Renderer;
+    pub extern fn wlr_renderer_autocreate(egl: [*c]wlroots.EGL, platform: egl.EGLenum, remote_display: ?*c_void, config_attribs: [*c]egl.EGLint, visual_id: egl.EGLint) [*c]Renderer;
     pub extern fn wlr_renderer_begin(r: *Renderer, width: c_int, height: c_int) void;
     pub extern fn wlr_renderer_end(r: *Renderer) void;
     pub extern fn wlr_renderer_clear(r: *Renderer, color: *const [4]f32) void;
@@ -35,7 +35,7 @@ pub const Renderer = extern struct {
     pub extern fn wlr_renderer_init_wl_display(r: *Renderer, wl_display: ?*wayland.Display) bool;
     pub extern fn wlr_renderer_destroy(renderer: *Renderer) void;
 
-    pub const wlr_renderer_create_func_t = ?fn ([*c]wlroots.struct_wlr_egl, egl.EGLenum, ?*c_void, [*c]egl.EGLint, egl.EGLint) callconv(.C) [*c]Renderer;
+    pub const wlr_renderer_create_func_t = ?fn ([*c]wlroots.EGL, egl.EGLenum, ?*c_void, [*c]egl.EGLint, egl.EGLint) callconv(.C) [*c]Renderer;
 
     impl: ?*const struct_wlr_renderer_impl,
     rendering: bool,

@@ -62,17 +62,16 @@ pub const Tablet = extern struct {
         };
 
         /// enum wlr_tablet_tool_axes
-        pub const enum_wlr_tablet_tool_axes = extern enum(c_int) {
-            WLR_TABLET_TOOL_AXIS_X = 1,
-            WLR_TABLET_TOOL_AXIS_Y = 2,
-            WLR_TABLET_TOOL_AXIS_DISTANCE = 4,
-            WLR_TABLET_TOOL_AXIS_PRESSURE = 8,
-            WLR_TABLET_TOOL_AXIS_TILT_X = 16,
-            WLR_TABLET_TOOL_AXIS_TILT_Y = 32,
-            WLR_TABLET_TOOL_AXIS_ROTATION = 64,
-            WLR_TABLET_TOOL_AXIS_SLIDER = 128,
-            WLR_TABLET_TOOL_AXIS_WHEEL = 256,
-            _,
+        pub const Axes = struct {
+            pub const WLR_TABLET_TOOL_AXIS_X: c_int = 1;
+            pub const WLR_TABLET_TOOL_AXIS_Y: c_int = 2;
+            pub const WLR_TABLET_TOOL_AXIS_DISTANCE: c_int = 4;
+            pub const WLR_TABLET_TOOL_AXIS_PRESSURE: c_int = 8;
+            pub const WLR_TABLET_TOOL_AXIS_TILT_X: c_int = 16;
+            pub const WLR_TABLET_TOOL_AXIS_TILT_Y: c_int = 32;
+            pub const WLR_TABLET_TOOL_AXIS_ROTATION: c_int = 64;
+            pub const WLR_TABLET_TOOL_AXIS_SLIDER: c_int = 128;
+            pub const WLR_TABLET_TOOL_AXIS_WHEEL: c_int = 256;
         };
 
         /// enum wlr_tablet_tool_type

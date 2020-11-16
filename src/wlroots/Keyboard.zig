@@ -26,12 +26,11 @@ pub const Keyboard = extern struct {
         // XXX fill this in
     };
 
-    ///  wlr_keyboard_led
-    pub const LED = extern enum(c_int) {
-        WLR_LED_NUM_LOCK = 1,
-        WLR_LED_CAPS_LOCK = 2,
-        WLR_LED_SCROLL_LOCK = 4,
-        _,
+    /// enum wlr_keyboard_led
+    pub const LED = struct {
+        pub const NumLock: c_int = 1;
+        pub const CapsLock: c_int = 2;
+        pub const ScrollLock: c_int = 4;
     };
 
     /// enum wlr_keyboard_modifier
@@ -57,11 +56,11 @@ pub const Keyboard = extern struct {
         group: xkb_mod_mask_t,
     };
 
-    pub extern fn wlr_keyboard_set_keymap(kb: [*c]Keyboard, keymap: ?*struct_xkb_keymap) bool;
+    pub extern fn wlr_keyboard_set_keymap(kb: *Keyboard, keymap: ?*struct_xkb_keymap) bool;
     pub extern fn wlr_keyboard_keymaps_match(km1: ?*struct_xkb_keymap, km2: ?*struct_xkb_keymap) bool;
-    pub extern fn wlr_keyboard_set_repeat_info(kb: [*c]Keyboard, rate: i32, delay: i32) void;
-    pub extern fn wlr_keyboard_led_update(keyboard: [*c]Keyboard, leds: u32) void;
-    pub extern fn wlr_keyboard_get_modifiers(keyboard: [*c]Keyboard) u32;
+    pub extern fn wlr_keyboard_set_repeat_info(kb: *Keyboard, rate: i32, delay: i32) void;
+    pub extern fn wlr_keyboard_led_update(keyboard: *Keyboard, leds: u32) void;
+    pub extern fn wlr_keyboard_get_modifiers(keyboard: *Keyboard) u32;
 
     impl: ?*const Impl,
     group: ?*Group,

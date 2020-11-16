@@ -67,16 +67,15 @@ pub const Output = extern struct {
         },
     };
 
-    pub const StateField = extern enum(c_int) {
-        WLR_OUTPUT_STATE_BUFFER = 1,
-        WLR_OUTPUT_STATE_DAMAGE = 2,
-        WLR_OUTPUT_STATE_MODE = 4,
-        WLR_OUTPUT_STATE_ENABLED = 8,
-        WLR_OUTPUT_STATE_SCALE = 16,
-        WLR_OUTPUT_STATE_TRANSFORM = 32,
-        WLR_OUTPUT_STATE_ADAPTIVE_SYNC_ENABLED = 64,
-        WLR_OUTPUT_STATE_GAMMA_LUT = 128,
-        _,
+    pub const StateField = struct {
+        pub const WLR_OUTPUT_STATE_BUFFER: c_int = 1;
+        pub const WLR_OUTPUT_STATE_DAMAGE: c_int = 2;
+        pub const WLR_OUTPUT_STATE_MODE: c_int = 4;
+        pub const WLR_OUTPUT_STATE_ENABLED: c_int = 8;
+        pub const WLR_OUTPUT_STATE_SCALE: c_int = 16;
+        pub const WLR_OUTPUT_STATE_TRANSFORM: c_int = 32;
+        pub const WLR_OUTPUT_STATE_ADAPTIVE_SYNC_ENABLED: c_int = 64;
+        pub const WLR_OUTPUT_STATE_GAMMA_LUT: c_int = 128;
     };
     pub const struct_wlr_output_event_damage = extern struct {
         output: *Output,

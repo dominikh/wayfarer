@@ -287,7 +287,7 @@ const Server = struct {
     renderer: *wlroots.Renderer,
     output_layout: *wlroots.Output.Layout,
 
-    xdg_shell: *wlroots.struct_wlr_xdg_shell,
+    xdg_shell: *wlroots.XDGShell,
     views: wl.List(View, "link"),
 
     cursor: *wlroots.Cursor,
@@ -1126,7 +1126,7 @@ pub fn main() !void {
     server.seat.seat.events.request_set_cursor.add(&server.seat.request_cursor);
 
     // note: no destructor; the shell is a static global
-    server.xdg_shell = wlroots.struct_wlr_xdg_shell.wlr_xdg_shell_create(server.dsp) orelse return error.Failure;
+    server.xdg_shell = wlroots.XDGShell.wlr_xdg_shell_create(server.dsp) orelse return error.Failure;
     server.new_xdg_surface.setNotify(Server.newXdgSurface);
     server.xdg_shell.events.new_surface.add(&server.new_xdg_surface);
 
