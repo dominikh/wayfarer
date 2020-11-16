@@ -1,6 +1,11 @@
 const std = @import("std");
-const Matrix = @import("Matrix.zig");
+const wl = @import("wayland.zig");
+const wlroots = @import("wlroots.zig");
+const xkb = @import("xkb.zig");
 const tracy = @import("tracy.zig");
+const libinput = @cImport({
+    @cInclude("linux/input.h");
+});
 var allocator_state = tracy.Allocator.init(std.heap.c_allocator, "C allocator");
 const allocator = &allocator_state.allocator;
 
@@ -146,207 +151,104 @@ const stdout = std.io.getStdout().writer();
 //   - [ ] popup_done
 //   - [ ] repositioned
 
-const c = @cImport({
-    @cDefine("WLR_USE_UNSTABLE", {});
-    @cInclude("wayland-server-core.h");
-    @cInclude("linux/input-event-codes.h");
+// const c = @cImport({
+//     @cDefine("WLR_USE_UNSTABLE", {});
+//     @cInclude("wayland-server-core.h");
+//     @cInclude("linux/input-event-codes.h");
 
-    @cInclude("wlr/backend.h");
-    // @cInclude("wlr/backend/drm.h");
-    // @cInclude("wlr/backend/headless.h");
-    // @cInclude("wlr/backend/interface.h");
-    // @cInclude("wlr/backend/libinput.h");
-    @cInclude("wlr/backend/multi.h");
-    // @cInclude("wlr/backend/noop.h");
-    // @cInclude("wlr/backend/session.h");
-    // @cInclude("wlr/backend/wayland.h");
-    // @cInclude("wlr/backend/x11.h");
-    // @cInclude("wlr/backend/session/interface.h");
+//     @cInclude("wlr/backend.h");
+//     // @cInclude("wlr/backend/drm.h");
+//     // @cInclude("wlr/backend/headless.h");
+//     // @cInclude("wlr/backend/interface.h");
+//     // @cInclude("wlr/backend/libinput.h");
+//     @cInclude("wlr/backend/multi.h");
+//     // @cInclude("wlr/backend/noop.h");
+//     // @cInclude("wlr/backend/session.h");
+//     // @cInclude("wlr/backend/wayland.h");
+//     // @cInclude("wlr/backend/x11.h");
+//     // @cInclude("wlr/backend/session/interface.h");
 
-    @cInclude("wlr/xcursor.h");
-    // @cInclude("wlr/config.h");
-    // @cInclude("wlr/version.h");
-    // @cInclude("wlr/xwayland.h");
+//     @cInclude("wlr/xcursor.h");
+//     // @cInclude("wlr/config.h");
+//     // @cInclude("wlr/version.h");
+//     // @cInclude("wlr/xwayland.h");
 
-    // @cInclude("wlr/interfaces/wlr_input_device.h");
-    // @cInclude("wlr/interfaces/wlr_keyboard.h");
-    // @cInclude("wlr/interfaces/wlr_output.h");
-    // @cInclude("wlr/interfaces/wlr_pointer.h");
-    // @cInclude("wlr/interfaces/wlr_switch.h");
-    // @cInclude("wlr/interfaces/wlr_tablet_pad.h");
-    // @cInclude("wlr/interfaces/wlr_tablet_tool.h");
-    // @cInclude("wlr/interfaces/wlr_touch.h");
+//     // @cInclude("wlr/interfaces/wlr_input_device.h");
+//     // @cInclude("wlr/interfaces/wlr_keyboard.h");
+//     // @cInclude("wlr/interfaces/wlr_output.h");
+//     // @cInclude("wlr/interfaces/wlr_pointer.h");
+//     // @cInclude("wlr/interfaces/wlr_switch.h");
+//     // @cInclude("wlr/interfaces/wlr_tablet_pad.h");
+//     // @cInclude("wlr/interfaces/wlr_tablet_tool.h");
+//     // @cInclude("wlr/interfaces/wlr_touch.h");
 
-    // @cInclude("wlr/render/dmabuf.h");
-    // @cInclude("wlr/render/drm_format_set.h");
-    // @cInclude("wlr/render/egl.h");
-    // @cInclude("wlr/render/gles2.h");
-    // @cInclude("wlr/render/interface.h");
-    @cInclude("wlr/render/wlr_renderer.h");
-    // @cInclude("wlr/render/wlr_texture.h");
+//     // @cInclude("wlr/render/dmabuf.h");
+//     // @cInclude("wlr/render/drm_format_set.h");
+//     // @cInclude("wlr/render/egl.h");
+//     // @cInclude("wlr/render/gles2.h");
+//     // @cInclude("wlr/render/interface.h");
+//     @cInclude("wlr/render/wlr_renderer.h");
+//     // @cInclude("wlr/render/wlr_texture.h");
 
-    // @cInclude("wlr/util/edges.h");
-    @cInclude("wlr/util/log.h");
-    // @cInclude("wlr/util/region.h");
+//     // @cInclude("wlr/util/edges.h");
+//     @cInclude("wlr/util/log.h");
+//     // @cInclude("wlr/util/region.h");
 
-    @cInclude("wlr/types/wlr_box.h");
-    // @cInclude("wlr/types/wlr_buffer.h");
-    @cInclude("wlr/types/wlr_compositor.h");
-    @cInclude("wlr/types/wlr_cursor.h");
-    // @cInclude("wlr/types/wlr_data_control_v1.h");
-    @cInclude("wlr/types/wlr_data_device.h");
-    // @cInclude("wlr/types/wlr_export_dmabuf_v1.h");
-    // @cInclude("wlr/types/wlr_foreign_toplevel_management_v1.h");
-    // @cInclude("wlr/types/wlr_fullscreen_shell_v1.h");
-    // @cInclude("wlr/types/wlr_gamma_control_v1.h");
-    // @cInclude("wlr/types/wlr_gtk_primary_selection.h");
-    // @cInclude("wlr/types/wlr_idle.h");
-    // @cInclude("wlr/types/wlr_idle_inhibit_v1.h");
-    // @cInclude("wlr/types/wlr_input_device.h");
-    // @cInclude("wlr/types/wlr_input_inhibitor.h");
-    // @cInclude("wlr/types/wlr_input_method_v2.h");
-    // @cInclude("wlr/types/wlr_keyboard_group.h");
-    // @cInclude("wlr/types/wlr_keyboard.h");
-    // @cInclude("wlr/types/wlr_keyboard_shortcuts_inhibit_v1.h");
-    // @cInclude("wlr/types/wlr_layer_shell_v1.h");
-    // @cInclude("wlr/types/wlr_linux_dmabuf_v1.h");
-    // @cInclude("wlr/types/wlr_list.h");
-    @cInclude("wlr/types/wlr_matrix.h");
-    // @cInclude("wlr/types/wlr_output_damage.h");
-    @cInclude("wlr/types/wlr_output.h");
-    @cInclude("wlr/types/wlr_output_layout.h");
-    // @cInclude("wlr/types/wlr_output_management_v1.h");
-    // @cInclude("wlr/types/wlr_output_power_management_v1.h");
-    // @cInclude("wlr/types/wlr_pointer_constraints_v1.h");
-    // @cInclude("wlr/types/wlr_pointer_gestures_v1.h");
-    // @cInclude("wlr/types/wlr_pointer.h");
-    // @cInclude("wlr/types/wlr_presentation_time.h");
-    // @cInclude("wlr/types/wlr_primary_selection.h");
-    // @cInclude("wlr/types/wlr_primary_selection_v1.h");
-    // @cInclude("wlr/types/wlr_region.h");
-    // @cInclude("wlr/types/wlr_relative_pointer_v1.h");
-    // @cInclude("wlr/types/wlr_screencopy_v1.h");
-    @cInclude("wlr/types/wlr_seat.h");
-    // @cInclude("wlr/types/wlr_server_decoration.h");
-    // @cInclude("wlr/types/wlr_surface.h");
-    // @cInclude("wlr/types/wlr_switch.h");
-    // @cInclude("wlr/types/wlr_tablet_pad.h");
-    // @cInclude("wlr/types/wlr_tablet_tool.h");
-    // @cInclude("wlr/types/wlr_tablet_v2.h");
-    // @cInclude("wlr/types/wlr_text_input_v3.h");
-    // @cInclude("wlr/types/wlr_touch.h");
-    // @cInclude("wlr/types/wlr_viewporter.h");
-    // @cInclude("wlr/types/wlr_virtual_keyboard_v1.h");
-    // @cInclude("wlr/types/wlr_virtual_pointer_v1.h");
-    @cInclude("wlr/types/wlr_xcursor_manager.h");
-    // @cInclude("wlr/types/wlr_xdg_decoration_v1.h");
-    // @cInclude("wlr/types/wlr_xdg_output_v1.h");
-    @cInclude("wlr/types/wlr_xdg_shell.h");
-    // @cInclude("wlr/types/wlr_xdg_shell_v6.h");
-});
-
-fn List(comptime T: type, comptime element_link_field: []const u8) type {
-    return extern struct {
-        const Self = @This();
-
-        prev: *@This() = undefined,
-        next: *@This() = undefined,
-
-        const elem = T;
-
-        fn Iterator(comptime forward: bool) type {
-            return struct {
-                head: *Self,
-                cur: *Self,
-
-                fn hasMore(iter: *@This()) bool {
-                    if (forward) {
-                        return iter.cur.next != iter.head;
-                    } else {
-                        return iter.cur.prev != iter.head;
-                    }
-                }
-                fn next(iter: *@This()) ?*Self.elem {
-                    if (!iter.hasMore()) {
-                        return null;
-                    }
-
-                    if (forward) {
-                        iter.cur = iter.cur.next;
-                        return iter.cur.container();
-                    } else {
-                        iter.cur = iter.cur.prev;
-                        return iter.cur.container();
-                    }
-                }
-            };
-        }
-
-        fn init(self: *@This()) void {
-            self.prev = self;
-            self.next = self;
-        }
-
-        fn isEmpty(self: *const @This()) bool {
-            return self.next == self;
-        }
-
-        fn iterate(self: *@This()) Iterator(true) {
-            return .{
-                .head = self,
-                .cur = self,
-            };
-        }
-
-        fn iterate_reverse(self: *@This()) Iterator(false) {
-            return .{
-                .head = self,
-                .cur = self,
-            };
-        }
-
-        fn insert(list: *@This(), elm: *@This()) void {
-            elm.prev = list;
-            elm.next = list.next;
-            list.next = elm;
-            elm.next.prev = elm;
-        }
-
-        fn remove(elm: *@This()) void {
-            elm.prev.next = elm.next;
-            elm.next.prev = elm.prev;
-            elm.next = elm;
-            elm.prev = elm;
-        }
-
-        fn container(elm: *@This()) *T {
-            // look up the actual type of the link field, because we
-            // have to stay compatible with C structs that use
-            // wl_list, not our safe version
-            const dst_type: type = TypeOfField(T, element_link_field);
-
-            // 'elm' is field 'field' in 'T'
-            return @fieldParentPtr(T, element_link_field, @ptrCast(*dst_type, elm));
-        }
-    };
-}
-
-fn TypeOfField(comptime T: type, comptime field: []const u8) type {
-    return std.meta.fieldInfo(T, field).field_type;
-}
-
-fn Listener(comptime T: type) type {
-    // TODO(dh): verify that T is a pointer type
-    return extern struct {
-        link: List(@This(), "link") = .{},
-        notify: fn (*@This(), T) callconv(.C) void = undefined,
-    };
-}
-
-fn wl_signal_add(signal: *c.struct_wl_signal, listener: anytype) void {
-    // TODO(dh): verify that listener is a *Listener(T)
-    c.wl_signal_add(signal, @ptrCast(*c.struct_wl_listener, listener));
-}
+//     @cInclude("wlr/types/wlr_box.h");
+//     // @cInclude("wlr/types/wlr_buffer.h");
+//     @cInclude("wlr/types/wlr_compositor.h");
+//     @cInclude("wlr/types/wlr_cursor.h");
+//     // @cInclude("wlr/types/wlr_data_control_v1.h");
+//     @cInclude("wlr/types/wlr_data_device.h");
+//     // @cInclude("wlr/types/wlr_export_dmabuf_v1.h");
+//     // @cInclude("wlr/types/wlr_foreign_toplevel_management_v1.h");
+//     // @cInclude("wlr/types/wlr_fullscreen_shell_v1.h");
+//     // @cInclude("wlr/types/wlr_gamma_control_v1.h");
+//     // @cInclude("wlr/types/wlr_gtk_primary_selection.h");
+//     // @cInclude("wlr/types/wlr_idle.h");
+//     // @cInclude("wlr/types/wlr_idle_inhibit_v1.h");
+//     // @cInclude("wlr/types/wlr_input_device.h");
+//     // @cInclude("wlr/types/wlr_input_inhibitor.h");
+//     // @cInclude("wlr/types/wlr_input_method_v2.h");
+//     // @cInclude("wlr/types/wlr_keyboard_group.h");
+//     // @cInclude("wlr/types/wlr_keyboard.h");
+//     // @cInclude("wlr/types/wlr_keyboard_shortcuts_inhibit_v1.h");
+//     // @cInclude("wlr/types/wlr_layer_shell_v1.h");
+//     // @cInclude("wlr/types/wlr_linux_dmabuf_v1.h");
+//     // @cInclude("wlr/types/wlr_list.h");
+//     @cInclude("wlr/types/wlr_matrix.h");
+//     // @cInclude("wlr/types/wlr_output_damage.h");
+//     @cInclude("wlr/types/wlr_output.h");
+//     @cInclude("wlr/types/wlr_output_layout.h");
+//     // @cInclude("wlr/types/wlr_output_management_v1.h");
+//     // @cInclude("wlr/types/wlr_output_power_management_v1.h");
+//     // @cInclude("wlr/types/wlr_pointer_constraints_v1.h");
+//     // @cInclude("wlr/types/wlr_pointer_gestures_v1.h");
+//     // @cInclude("wlr/types/wlr_pointer.h");
+//     // @cInclude("wlr/types/wlr_presentation_time.h");
+//     // @cInclude("wlr/types/wlr_primary_selection.h");
+//     // @cInclude("wlr/types/wlr_primary_selection_v1.h");
+//     // @cInclude("wlr/types/wlr_region.h");
+//     // @cInclude("wlr/types/wlr_relative_pointer_v1.h");
+//     // @cInclude("wlr/types/wlr_screencopy_v1.h");
+//     @cInclude("wlr/types/wlr_seat.h");
+//     // @cInclude("wlr/types/wlr_server_decoration.h");
+//     // @cInclude("wlr/types/wlr_surface.h");
+//     // @cInclude("wlr/types/wlr_switch.h");
+//     // @cInclude("wlr/types/wlr_tablet_pad.h");
+//     // @cInclude("wlr/types/wlr_tablet_tool.h");
+//     // @cInclude("wlr/types/wlr_tablet_v2.h");
+//     // @cInclude("wlr/types/wlr_text_input_v3.h");
+//     // @cInclude("wlr/types/wlr_touch.h");
+//     // @cInclude("wlr/types/wlr_viewporter.h");
+//     // @cInclude("wlr/types/wlr_virtual_keyboard_v1.h");
+//     // @cInclude("wlr/types/wlr_virtual_pointer_v1.h");
+//     @cInclude("wlr/types/wlr_xcursor_manager.h");
+//     // @cInclude("wlr/types/wlr_xdg_decoration_v1.h");
+//     // @cInclude("wlr/types/wlr_xdg_output_v1.h");
+//     @cInclude("wlr/types/wlr_xdg_shell.h");
+//     // @cInclude("wlr/types/wlr_xdg_shell_v6.h");
+// });
 
 const Vec2 = struct {
     x: f64 = 0,
@@ -378,35 +280,35 @@ const Server = struct {
         Resize: *View,
     };
 
-    dsp: *c.struct_wl_display,
-    evloop: *c.struct_wl_event_loop,
+    dsp: *wl.Display,
+    evloop: *wl.EventLoop,
 
-    backend: *c.struct_wlr_backend,
-    renderer: *c.struct_wlr_renderer,
-    output_layout: *c.struct_wlr_output_layout,
+    backend: *wlroots.Backend,
+    renderer: *wlroots.Renderer,
+    output_layout: *wlroots.Output.Layout,
 
-    xdg_shell: *c.struct_wlr_xdg_shell,
-    views: List(View, "link"),
+    xdg_shell: *wlroots.struct_wlr_xdg_shell,
+    views: wl.List(View, "link"),
 
-    cursor: *c.struct_wlr_cursor,
-    cursor_mgr: *c.wlr_xcursor_manager,
+    cursor: *wlroots.Cursor,
+    cursor_mgr: *wlroots.XCursor.Manager,
     cursor_mode: CursorMode = .{ .Normal = .{} },
 
-    outputs: List(Output, "link"),
+    outputs: wl.List(Output, "link"),
 
     // TODO(dh): support multiple seats
     seat: Seat,
-    pointers: List(Pointer, "link"),
-    keyboards: List(Keyboard, "link"),
+    pointers: wl.List(Pointer, "link"),
+    keyboards: wl.List(Keyboard, "link"),
 
-    new_xdg_surface: Listener(*c.struct_wlr_xdg_surface),
-    new_output: Listener(*c.struct_wlr_output),
-    new_input: Listener(*c.struct_wlr_input_device),
-    cursor_motion: Listener(*c.struct_wlr_event_pointer_motion),
-    cursor_motion_absolute: Listener(*c.struct_wlr_event_pointer_motion_absolute),
-    cursor_button: Listener(*c.struct_wlr_event_pointer_button),
-    cursor_axis: Listener(*c.wlr_event_pointer_axis),
-    cursor_frame: Listener(*c_void),
+    new_xdg_surface: wl.Listener(*wlroots.XDGSurface),
+    new_output: wl.Listener(*wlroots.Output),
+    new_input: wl.Listener(*wlroots.InputDevice),
+    cursor_motion: wl.Listener(*wlroots.Pointer.Events.Motion),
+    cursor_motion_absolute: wl.Listener(*wlroots.Pointer.Events.MotionAbsolute),
+    cursor_button: wl.Listener(*wlroots.Pointer.Events.Button),
+    cursor_axis: wl.Listener(*wlroots.Pointer.Events.Axis),
+    cursor_frame: wl.Listener(*wlroots.Cursor),
 
     fn init(server: *Server) void {
         server.cursor_mode = .Normal;
@@ -419,20 +321,20 @@ const Server = struct {
     fn updateSeatCapabilities(server: *const Server) void {
         var caps: c_int = 0;
         if (!server.pointers.isEmpty()) {
-            caps |= c.WL_SEAT_CAPABILITY_POINTER;
+            caps |= @enumToInt(wl.struct_wl_seat.enum_wl_seat_capability.WL_SEAT_CAPABILITY_POINTER);
         }
         if (!server.keyboards.isEmpty()) {
-            caps |= c.WL_SEAT_CAPABILITY_KEYBOARD;
+            caps |= @enumToInt(wl.struct_wl_seat.enum_wl_seat_capability.WL_SEAT_CAPABILITY_KEYBOARD);
         }
         server.seat.setCapabilities(@intCast(u32, caps));
     }
 
-    fn cursorFrame(listener: *Listener(*c_void), event: *c_void) callconv(.C) void {
+    fn cursorFrame(listener: *wl.Listener(*wlroots.Cursor), event: *wlroots.Cursor) void {
         const server = @fieldParentPtr(Server, "cursor_frame", listener);
         server.seat.pointerNotifyFrame();
     }
 
-    fn cursorButton(listener: *Listener(*c.struct_wlr_event_pointer_button), event: *c.struct_wlr_event_pointer_button) callconv(.C) void {
+    fn cursorButton(listener: *wl.Listener(*wlroots.Pointer.Events.Button), event: *wlroots.Pointer.Events.Button) void {
         const server = @fieldParentPtr(Server, "cursor_button", listener);
 
         // XXX handle return value
@@ -441,22 +343,22 @@ const Server = struct {
         switch (server.cursor_mode) {
             .Normal => {},
             .Move, .Resize => {
-                if (event.button == c.BTN_LEFT) {
+                if (event.button == libinput.BTN_LEFT) {
                     switch (event.state) {
-                        .WLR_BUTTON_RELEASED => {
+                        .Released => {
                             switch (server.cursor_mode) {
                                 .Move => |value| {
-                                    _ = c.wlr_xdg_toplevel_set_resizing(value.grabbed_view.xdg_surface, false);
+                                    _ = value.grabbed_view.xdg_toplevel.SetResizing(false);
                                 },
                                 .Resize => |view| {
-                                    _ = c.wlr_xdg_toplevel_set_resizing(view.xdg_surface, false);
+                                    _ = view.xdg_toplevel.SetResizing(false);
                                 },
                                 else => {},
                             }
 
                             server.cursor_mode = .Normal;
                         },
-                        .WLR_BUTTON_PRESSED => {
+                        .Pressed => {
                             // XXX throw an error, because this should be impossible
                         },
                         else => {
@@ -468,18 +370,18 @@ const Server = struct {
         }
     }
 
-    fn cursorMotion(listener: *Listener(*c.struct_wlr_event_pointer_motion), event: *c.struct_wlr_event_pointer_motion) callconv(.C) void {
+    fn cursorMotion(listener: *wl.Listener(*wlroots.Pointer.Events.Motion), event: *wlroots.Pointer.Events.Motion) void {
         // XXX support relative cursor motion
         std.debug.print("cursor motion\n", .{});
     }
 
-    fn cursorMotionAbsolute(listener: *Listener(*c.struct_wlr_event_pointer_motion_absolute), event: *c.struct_wlr_event_pointer_motion_absolute) callconv(.C) void {
+    fn cursorMotionAbsolute(listener: *wl.Listener(*wlroots.Pointer.Events.MotionAbsolute), event: *wlroots.Pointer.Events.MotionAbsolute) void {
         const server = @fieldParentPtr(Server, "cursor_motion_absolute", listener);
-        c.wlr_cursor_warp_absolute(server.cursor, event.device, event.x, event.y);
+        server.cursor.wlr_cursor_warp_absolute(event.device, event.x, event.y);
         server.processCursorMotion(event.time_msec);
     }
 
-    fn cursorAxis(listener: *Listener(*c.struct_wlr_event_pointer_axis), event: *c.struct_wlr_event_pointer_axis) callconv(.C) void {
+    fn cursorAxis(listener: *wl.Listener(*wlroots.Pointer.Events.Axis), event: *wlroots.Pointer.Events.Axis) void {
         const server = @fieldParentPtr(Server, "cursor_axis", listener);
         if (server.seat.seat.pointer_state.focused_surface) |surface| {
             server.seat.pointerNotifyAxis(
@@ -505,7 +407,7 @@ const Server = struct {
                 // real applications, we'll have to make use of the layout,
                 // support constricting absolute input devices to specific
                 // outputs or portions thereof, etc.
-                var surface: ?*c.struct_wlr_surface = undefined;
+                var surface: ?*wlroots.Surface = undefined;
                 var sx: f64 = undefined;
                 var sy: f64 = undefined;
                 if (server.findViewUnderCursor(cursor_lx, cursor_ly, &surface, &sx, &sy)) |view| {
@@ -525,7 +427,7 @@ const Server = struct {
                     server.seat.pointerNotifyClearFocus();
 
                     // TODO(dh): is there a fixed set of valid pointer names?
-                    c.wlr_xcursor_manager_set_cursor_image(server.cursor_mgr, "left_ptr", server.cursor);
+                    server.cursor_mgr.wlr_xcursor_manager_set_cursor_image("left_ptr", server.cursor);
                 }
             },
 
@@ -547,18 +449,18 @@ const Server = struct {
                     .x = ar.orig_geometry.width,
                     .y = ar.orig_geometry.height,
                 };
-                if (ar.edges & @intCast(u32, c.WLR_EDGE_LEFT) != 0) {
+                if (ar.edges & @intCast(u32, @enumToInt(wlroots.enum_wlr_edges.WLR_EDGE_LEFT)) != 0) {
                     new_size.x = ar.orig_geometry.width - delta_lx;
-                } else if (ar.edges & @intCast(u32, c.WLR_EDGE_RIGHT) != 0) {
+                } else if (ar.edges & @intCast(u32, @enumToInt(wlroots.enum_wlr_edges.WLR_EDGE_RIGHT)) != 0) {
                     new_size.x = ar.orig_geometry.width + delta_lx;
                 }
-                if (ar.edges & @intCast(u32, c.WLR_EDGE_TOP) != 0) {
+                if (ar.edges & @intCast(u32, @enumToInt(wlroots.enum_wlr_edges.WLR_EDGE_TOP)) != 0) {
                     new_size.y = ar.orig_geometry.height - delta_ly;
-                } else if (ar.edges & @intCast(u32, c.WLR_EDGE_BOTTOM) != 0) {
+                } else if (ar.edges & @intCast(u32, @enumToInt(wlroots.enum_wlr_edges.WLR_EDGE_BOTTOM)) != 0) {
                     new_size.y = ar.orig_geometry.height + delta_ly;
                 }
 
-                const state = view.xdg_surface.unnamed_0.toplevel.*.current;
+                const state = view.xdg_toplevel.current;
                 const min_width = @intToFloat(f64, state.min_width);
                 const min_height = @intToFloat(f64, state.min_height);
                 if (new_size.x < min_width) {
@@ -568,8 +470,7 @@ const Server = struct {
                     new_size.y = min_height;
                 }
 
-                _ = c.wlr_xdg_toplevel_set_size(
-                    view.xdg_surface,
+                _ = view.xdg_toplevel.SetSize(
                     @floatToInt(u32, @round(new_size.x)),
                     @floatToInt(u32, @round(new_size.y)),
                 );
@@ -578,7 +479,7 @@ const Server = struct {
     }
 
     /// findViewUnderCursor finds the view and surface at position (lx, ly), respecting input regions.
-    fn findViewUnderCursor(server: *Server, lx: f64, ly: f64, surface: *?*c.struct_wlr_surface, sx: *f64, sy: *f64) ?*View {
+    fn findViewUnderCursor(server: *Server, lx: f64, ly: f64, surface: *?*wlroots.Surface, sx: *f64, sy: *f64) ?*View {
         // OPT(dh): test against the previously found view. most of
         // the time, the cursor moves within a view.
         //
@@ -590,7 +491,7 @@ const Server = struct {
             const view_sx = lx - view.position.x;
             const view_sy = ly - view.position.y;
 
-            surface.* = c.wlr_xdg_surface_surface_at(view.xdg_surface, view_sx, view_sy, sx, sy);
+            surface.* = view.xdg_toplevel.base.wlr_xdg_surface_surface_at(view_sx, view_sy, sx, sy);
             if (surface.* != null) {
                 return view;
             }
@@ -598,35 +499,35 @@ const Server = struct {
         return null;
     }
 
-    fn newInput(listener: *Listener(*c.wlr_input_device), device: *c.wlr_input_device) callconv(.C) void {
+    fn newInput(listener: *wl.Listener(*wlroots.InputDevice), device: *wlroots.InputDevice) void {
         const server = @fieldParentPtr(Server, "new_input", listener);
 
         switch (device.type) {
-            .WLR_INPUT_DEVICE_KEYBOARD => {
+            .Keyboard => {
                 var keyboard = allocator.create(Keyboard) catch @panic("out of memory");
                 keyboard.server = server;
                 keyboard.device = device;
 
                 // TODO(dh): a whole bunch of keymap stuff
-                const rules: c.xkb_rule_names = undefined;
-                const context = c.xkb_context_new(.XKB_CONTEXT_NO_FLAGS);
-                const keymap = c.xkb_map_new_from_names(context, &rules, .XKB_KEYMAP_COMPILE_NO_FLAGS);
+                const rules: xkb.struct_xkb_rule_names = undefined;
+                const context = xkb.xkb_context_new(.XKB_CONTEXT_NO_FLAGS);
+                const keymap = xkb.xkb_map_new_from_names(context, &rules, .XKB_KEYMAP_COMPILE_NO_FLAGS);
 
-                _ = c.wlr_keyboard_set_keymap(device.unnamed_0.keyboard, keymap);
-                c.xkb_keymap_unref(keymap);
-                c.xkb_context_unref(context);
-                c.wlr_keyboard_set_repeat_info(device.unnamed_0.keyboard, 25, 600);
+                _ = device.unnamed_0.keyboard.wlr_keyboard_set_keymap(keymap);
+                xkb.xkb_keymap_unref(keymap);
+                xkb.xkb_context_unref(context);
+                device.unnamed_0.keyboard.wlr_keyboard_set_repeat_info(25, 600);
 
-                keyboard.modifiers.notify = Keyboard.handleModifiers;
-                keyboard.key.notify = Keyboard.handleKey;
-                keyboard.keymap.notify = Keyboard.handleKeymap;
-                keyboard.repeat_info.notify = Keyboard.handleRepeatInfo;
-                keyboard.destroy.notify = Keyboard.handleDestroy;
-                wl_signal_add(&device.unnamed_0.keyboard.*.events.modifiers, &keyboard.modifiers);
-                wl_signal_add(&device.unnamed_0.keyboard.*.events.key, &keyboard.key);
-                wl_signal_add(&device.unnamed_0.keyboard.*.events.keymap, &keyboard.keymap);
-                wl_signal_add(&device.unnamed_0.keyboard.*.events.repeat_info, &keyboard.repeat_info);
-                wl_signal_add(&device.unnamed_0.keyboard.*.events.destroy, &keyboard.destroy);
+                keyboard.modifiers.setNotify(Keyboard.handleModifiers);
+                keyboard.key.setNotify(Keyboard.handleKey);
+                keyboard.keymap.setNotify(Keyboard.handleKeymap);
+                keyboard.repeat_info.setNotify(Keyboard.handleRepeatInfo);
+                keyboard.destroy.setNotify(Keyboard.handleDestroy);
+                device.unnamed_0.keyboard.*.events.modifiers.add(&keyboard.modifiers);
+                device.unnamed_0.keyboard.*.events.key.add(&keyboard.key);
+                device.unnamed_0.keyboard.*.events.keymap.add(&keyboard.keymap);
+                device.unnamed_0.keyboard.*.events.repeat_info.add(&keyboard.repeat_info);
+                device.unnamed_0.keyboard.*.events.destroy.add(&keyboard.destroy);
 
                 server.keyboards.insert(&keyboard.link);
 
@@ -638,8 +539,8 @@ const Server = struct {
                 }
             },
 
-            .WLR_INPUT_DEVICE_POINTER => {
-                c.wlr_cursor_attach_input_device(server.cursor, device);
+            .Pointer => {
+                server.cursor.wlr_cursor_attach_input_device(device);
                 var pointer = allocator.create(Pointer) catch @panic("out of memory");
                 pointer.server = server;
                 pointer.device = device;
@@ -654,33 +555,33 @@ const Server = struct {
         server.updateSeatCapabilities();
     }
 
-    fn newXdgSurface(listener: *Listener(*c.struct_wlr_xdg_surface), xdg_surface: *c.struct_wlr_xdg_surface) callconv(.C) void {
+    fn newXdgSurface(listener: *wl.Listener(*wlroots.XDGSurface), xdg_surface: *wlroots.XDGSurface) void {
         const server = @fieldParentPtr(Server, "new_xdg_surface", listener);
         switch (xdg_surface.role) {
             .WLR_XDG_SURFACE_ROLE_TOPLEVEL => {
                 var view = allocator.create(View) catch @panic("out of memory");
                 view.* = .{
                     .server = server,
-                    .xdg_surface = xdg_surface,
+                    .xdg_toplevel = xdg_surface.unnamed_0.toplevel,
                 };
 
-                view.map.notify = View.xdgSurfaceMap;
-                view.unmap.notify = View.xdgSurfaceUnmap;
-                view.destroy.notify = View.xdgSurfaceDestroy;
-                wl_signal_add(&xdg_surface.events.map, &view.map);
-                wl_signal_add(&xdg_surface.events.unmap, &view.unmap);
-                wl_signal_add(&xdg_surface.events.destroy, &view.destroy);
+                view.map.setNotify(View.xdgSurfaceMap);
+                view.unmap.setNotify(View.xdgSurfaceUnmap);
+                view.destroy.setNotify(View.xdgSurfaceDestroy);
+                xdg_surface.events.map.add(&view.map);
+                xdg_surface.events.unmap.add(&view.unmap);
+                xdg_surface.events.destroy.add(&view.destroy);
 
                 const toplevel = xdg_surface.unnamed_0.toplevel;
-                view.request_move.notify = View.xdgToplevelRequestMove;
-                view.request_resize.notify = View.xdgToplevelRequestResize;
-                view.request_maximize.notify = View.xdgToplevelRequestMaximize;
-                wl_signal_add(&toplevel.*.events.request_move, &view.request_move);
-                wl_signal_add(&toplevel.*.events.request_resize, &view.request_resize);
-                wl_signal_add(&toplevel.*.events.request_maximize, &view.request_maximize);
+                view.request_move.setNotify(View.xdgToplevelRequestMove);
+                view.request_resize.setNotify(View.xdgToplevelRequestResize);
+                view.request_maximize.setNotify(View.xdgToplevelRequestMaximize);
+                toplevel.*.events.request_move.add(&view.request_move);
+                toplevel.*.events.request_resize.add(&view.request_resize);
+                toplevel.*.events.request_maximize.add(&view.request_maximize);
 
-                view.commit.notify = View.commit;
-                wl_signal_add(&xdg_surface.surface.*.events.commit, &view.commit);
+                view.commit.setNotify(View.commit);
+                xdg_surface.surface.*.events.commit.add(&view.commit);
 
                 server.views.insert(&view.link);
             },
@@ -692,120 +593,122 @@ const Server = struct {
 };
 
 const Seat = struct {
-    seat: *c.wlr_seat,
+    seat: *wlroots.Seat,
 
-    request_cursor: Listener(*c.struct_wlr_seat_pointer_request_set_cursor_event),
+    request_cursor: wl.Listener(*wlroots.Seat.struct_wlr_seat_pointer_request_set_cursor_event),
 
     fn setCapabilities(seat: *const Seat, caps: u32) void {
-        c.wlr_seat_set_capabilities(seat.seat, caps);
+        seat.seat.wlr_seat_set_capabilities(caps);
     }
 
-    fn setKeyboard(seat: *const Seat, kbd: *c.wlr_input_device) void {
-        c.wlr_seat_set_keyboard(seat.seat, kbd);
+    fn setKeyboard(seat: *const Seat, kbd: *wlroots.InputDevice) void {
+        seat.seat.wlr_seat_set_keyboard(kbd);
     }
 
-    fn getKeyboard(seat: *const Seat) ?*c.struct_wlr_keyboard {
-        return c.wlr_seat_get_keyboard(seat.seat);
+    fn getKeyboard(seat: *const Seat) ?*wlroots.Keyboard {
+        return seat.seat.wlr_seat_get_keyboard();
     }
 
-    fn keyboardNotifyEnter(seat: *const Seat, surface: *c.struct_wlr_surface, keycodes: [*]u32, num_keycodes: usize, modifiers: *c.struct_wlr_keyboard_modifiers) void {
-        c.wlr_seat_keyboard_notify_enter(seat.seat, surface, keycodes, num_keycodes, modifiers);
+    fn keyboardNotifyEnter(seat: *const Seat, surface: *wlroots.Surface, keycodes: [*]u32, num_keycodes: usize, modifiers: *wlroots.Keyboard.Modifiers) void {
+        seat.seat.wlr_seat_keyboard_notify_enter(surface, keycodes, num_keycodes, modifiers);
     }
 
-    fn keyboardNotifyModifiers(seat: *const Seat, mods: *c.struct_wlr_keyboard_modifiers) void {
-        c.wlr_seat_keyboard_notify_modifiers(seat.seat, mods);
+    fn keyboardNotifyModifiers(seat: *const Seat, mods: *wlroots.Keyboard.Modifiers) void {
+        seat.seat.wlr_seat_keyboard_notify_modifiers(mods);
     }
 
-    fn keyboardNotifyKey(seat: *const Seat, time_msec: u32, keycode: u32, state: c.enum_wlr_key_state) void {
-        c.wlr_seat_keyboard_notify_key(seat.seat, time_msec, keycode, @intCast(u32, @enumToInt(state)));
+    fn keyboardNotifyKey(seat: *const Seat, time_msec: u32, keycode: u32, state: wlroots.Keyboard.enum_wlr_key_state) void {
+        seat.seat.wlr_seat_keyboard_notify_key(time_msec, keycode, @intCast(u32, @enumToInt(state)));
     }
 
-    fn pointerNotifyEnter(seat: *const Seat, surface: *c.struct_wlr_surface, sx: f64, sy: f64) void {
-        c.wlr_seat_pointer_notify_enter(seat.seat, surface, sx, sy);
+    fn pointerNotifyEnter(seat: *const Seat, surface: *wlroots.Surface, sx: f64, sy: f64) void {
+        seat.seat.wlr_seat_pointer_notify_enter(surface, sx, sy);
     }
 
     fn pointerNotifyClearFocus(seat: *const Seat) void {
-        c.wlr_seat_pointer_notify_clear_focus(seat.seat);
+        seat.seat.wlr_seat_pointer_notify_clear_focus();
     }
 
-    fn pointerNotifyButton(seat: *const Seat, time_msec: u32, button: u32, state: c.enum_wlr_button_state) u32 {
-        return c.wlr_seat_pointer_notify_button(seat.seat, time_msec, button, state);
+    fn pointerNotifyButton(seat: *const Seat, time_msec: u32, button: u32, state: wlroots.enum_wlr_button_state) u32 {
+        return seat.seat.wlr_seat_pointer_notify_button(time_msec, button, state);
     }
 
     fn pointerNotifyMotion(seat: *const Seat, time_msec: u32, sx: f64, sy: f64) void {
-        c.wlr_seat_pointer_notify_motion(seat.seat, time_msec, sx, sy);
+        seat.seat.wlr_seat_pointer_notify_motion(time_msec, sx, sy);
     }
 
     fn pointerNotifyAxis(
         seat: *const Seat,
         time_msec: u32,
-        orientation: c.enum_wlr_axis_orientation,
+        orientation: wlroots.Pointer.enum_wlr_axis_orientation,
         value: f64,
         value_discrete: i32,
-        source: c.enum_wlr_axis_source,
+        source: wlroots.Pointer.enum_wlr_axis_source,
     ) void {
-        c.wlr_seat_pointer_notify_axis(seat.seat, time_msec, orientation, value, value_discrete, source);
+        seat.seat.wlr_seat_pointer_notify_axis(time_msec, orientation, value, value_discrete, source);
     }
 
     fn pointerNotifyFrame(seat: *const Seat) void {
-        c.wlr_seat_pointer_notify_frame(seat.seat);
+        seat.seat.wlr_seat_pointer_notify_frame();
     }
 
-    fn requestCursor(listener: *Listener(*c.struct_wlr_seat_pointer_request_set_cursor_event), event: *c.struct_wlr_seat_pointer_request_set_cursor_event) callconv(.C) void {
+    fn requestCursor(listener: *wl.Listener(*wlroots.Seat.struct_wlr_seat_pointer_request_set_cursor_event), event: *wlroots.Seat.struct_wlr_seat_pointer_request_set_cursor_event) void {
         const seat = @fieldParentPtr(Seat, "request_cursor", listener);
         const server = @fieldParentPtr(Server, "seat", seat);
         if (seat.seat.pointer_state.focused_client == event.seat_client) {
-            c.wlr_cursor_set_surface(server.cursor, event.surface, event.hotspot_x, event.hotspot_y);
+            server.cursor.wlr_cursor_set_surface(event.surface, event.hotspot_x, event.hotspot_y);
         }
     }
 };
 
 const Output = struct {
-    output: *c.struct_wlr_output,
+    output: *wlroots.Output,
     server: *Server,
     last_frame: std.os.timespec,
 
-    destroy: Listener(*c.struct_wlr_output),
-    frame: Listener(*c.struct_wlr_output),
-    present: Listener(*c_void),
+    destroy: wl.Listener(*wlroots.Output),
+    frame: wl.Listener(*wlroots.Output),
+    present: wl.Listener(?*c_void),
 
-    link: List(@This(), "link"),
+    link: wl.List(@This(), "link"),
 
-    fn transform_matrix(output: *Output) Matrix {
-        return @bitCast(Matrix, output.output.transform_matrix);
+    fn transform_matrix(output: *Output) wlroots.Matrix {
+        return .{
+            .data = @bitCast([3][3]f32, output.output.transform_matrix),
+        };
     }
 
-    fn newOutputNotify(listener: *Listener(*c.struct_wlr_output), output: *c.struct_wlr_output) callconv(.C) void {
+    fn newOutputNotify(listener: *wl.Listener(*wlroots.Output), output: *wlroots.Output) void {
         std.debug.print("new output\n", .{});
         const server = @fieldParentPtr(Server, "new_output", listener);
 
-        const modes = @ptrCast(*List(c.wlr_output_mode, "link"), &output.modes);
+        const modes = @ptrCast(*wl.List(wlroots.Output.Mode, "link"), &output.modes);
         if (!modes.isEmpty()) {
-            const mode: *c.wlr_output_mode = modes.prev.container();
-            c.wlr_output_set_mode(output, mode);
-            c.wlr_output_enable(output, true);
-            if (!c.wlr_output_commit(output)) {
+            const mode: *wlroots.Output.Mode = modes.prev.container();
+            output.wlr_output_set_mode(mode);
+            output.wlr_output_enable(true);
+            if (!output.wlr_output_commit()) {
                 return;
             }
         }
 
-        var our_output = allocator.create(Output) catch @panic("out of memory");
+        var our_output: *Output = allocator.create(Output) catch @panic("out of memory");
         our_output.output = output;
         our_output.server = server;
         std.os.clock_gettime(std.os.CLOCK_MONOTONIC, &our_output.last_frame) catch |err| @panic(@errorName(err));
         server.outputs.insert(&our_output.link);
 
-        our_output.destroy.notify = Output.destroyNotify;
-        our_output.frame.notify = Output.frameNotify;
-        our_output.present.notify = Output.present;
-        wl_signal_add(&output.events.destroy, &our_output.destroy);
-        wl_signal_add(&output.events.frame, &our_output.frame);
-        wl_signal_add(&output.events.present, &our_output.present);
+        our_output.destroy.setNotify(Output.destroyNotify);
+        our_output.frame.setNotify(Output.frameNotify);
+        our_output.present.setNotify(Output.present);
+        output.events.destroy.add(&our_output.destroy);
+        output.events.frame.add(&our_output.frame);
+        output.events.present.add(&our_output.present);
 
-        c.wlr_output_layout_add_auto(server.output_layout, output);
+        server.output_layout.wlr_output_layout_add_auto(output);
     }
 
-    fn destroyNotify(listener: *Listener(*c.struct_wlr_output), data: *c.struct_wlr_output) callconv(.C) void {
+    fn destroyNotify(listener: *wl.Listener(*wlroots.Output), data: *wlroots.Output) void {
         const our_output = @fieldParentPtr(Output, "destroy", listener);
 
         our_output.link.remove();
@@ -816,7 +719,7 @@ const Output = struct {
         // XXX deallocate our output?
     }
 
-    fn frameNotify(listener: *Listener(*c.struct_wlr_output), output: *c.struct_wlr_output) callconv(.C) void {
+    fn frameNotify(listener: *wl.Listener(*wlroots.Output), output: *wlroots.Output) void {
         const tracectx = tracy.trace(@src());
         defer tracectx.end();
 
@@ -828,22 +731,22 @@ const Output = struct {
         // XXX don't panic
         std.os.clock_gettime(std.os.CLOCK_MONOTONIC, &now) catch |err| @panic(@errorName(err));
 
-        if (!c.wlr_output_attach_render(output, null)) {
+        if (!output.wlr_output_attach_render(null)) {
             // TODO(dh): why can this fail?
             return;
         }
 
         var width: c_int = undefined;
         var height: c_int = undefined;
-        c.wlr_output_effective_resolution(our_output.output, &width, &height);
-        c.wlr_renderer_begin(renderer, width, height);
+        our_output.output.wlr_output_effective_resolution(&width, &height);
+        renderer.begin(width, height);
 
         const color = [_]f32{ 0.3, 0.3, 0.3, 1 };
-        c.wlr_renderer_clear(renderer, color[0..4]);
+        renderer.clear(&color);
 
         var iter = server.views.iterate_reverse();
         while (iter.next()) |view| {
-            if (!view.xdg_surface.mapped) {
+            if (!view.xdg_toplevel.base.mapped) {
                 continue;
             }
             var rdata = RenderData{
@@ -852,21 +755,21 @@ const Output = struct {
                 .now = now,
             };
             // TODO(dh): provide a safe wrapper for wlr_xdg_surface_for_each_surface
-            c.wlr_xdg_surface_for_each_surface(view.xdg_surface, Output.renderSurface, &rdata);
+            view.xdg_toplevel.base.forEachSurface(Output.renderSurface, &rdata);
         }
 
-        c.wlr_output_render_software_cursors(our_output.output, null);
+        our_output.output.wlr_output_render_software_cursors(null);
 
-        c.wlr_renderer_end(renderer);
+        renderer.end();
         // TODO(dh): why can this fail?
-        _ = c.wlr_output_commit(our_output.output);
+        _ = our_output.output.wlr_output_commit();
     }
 
-    fn present(listener: *Listener(*c_void), output: *c_void) callconv(.C) void {
+    fn present(listener: *wl.Listener(?*c_void), output: ?*c_void) void {
         tracy.frame(null);
     }
 
-    fn renderSurface(surface: ?*c.struct_wlr_surface, sx: c_int, sy: c_int, data: ?*c_void) callconv(.C) void {
+    fn renderSurface(surface: *wlroots.Surface, sx: c_int, sy: c_int, data: ?*c_void) callconv(.C) void {
         const tracectx = tracy.trace(@src());
         defer tracectx.end();
 
@@ -875,7 +778,7 @@ const Output = struct {
         const output = rdata.output;
         const renderer = output.server.renderer;
 
-        const texture = c.wlr_surface_get_texture(surface) orelse return;
+        const texture = surface.wlr_surface_get_texture() orelse return;
 
         // buffer -> surface -> layout -> output
 
@@ -883,17 +786,18 @@ const Output = struct {
         // TODO(dh): support outputs not positioned at (0, 0) in layout space
         // TODO(dh): support buffers that don't match surface coordinates
 
-        var m: Matrix = Matrix.Identity;
+        var m: wlroots.Matrix = wlroots.Matrix.Identity;
         m.translate(@floatCast(f32, view.position.x + @intToFloat(f64, sx)), @floatCast(f32, view.position.y + @intToFloat(f64, sy)));
-        m.scale(@intToFloat(f32, surface.?.current.width), @intToFloat(f32, surface.?.current.height));
+        m.scale(@intToFloat(f32, surface.current.width), @intToFloat(f32, surface.current.height));
 
         // var m = view.transformation_matrix();
         m.mul(output.transform_matrix(), m);
 
         // XXX handle failure
-        _ = c.wlr_render_texture_with_matrix(renderer, texture, m.linear(), 1);
+        renderer.renderTextureWithMatrix(texture, m, 1) catch {};
         // XXX make sure the two timespec structs are actually ABI compatible
-        c.wlr_surface_send_frame_done(surface, @ptrCast(*c.struct_timespec, &rdata.now));
+
+        surface.wlr_surface_send_frame_done(&rdata.now);
     }
 };
 
@@ -909,7 +813,7 @@ fn deg2rad(deg: f32) f32 {
 
 const View = struct {
     server: *Server,
-    xdg_surface: *c.struct_wlr_xdg_surface,
+    xdg_toplevel: *wlroots.XDGToplevel,
     // the view's position in layout space
     position: Vec2 = .{},
     rotation: f32 = 0, // in radians
@@ -934,15 +838,16 @@ const View = struct {
         .height = undefined,
     },
 
-    map: Listener(*c.struct_wlr_xdg_surface) = .{},
-    unmap: Listener(*c.struct_wlr_xdg_surface) = .{},
-    destroy: Listener(*c.struct_wlr_xdg_surface) = .{},
-    request_move: Listener(*c.struct_wlr_xdg_toplevel_move_event) = .{},
-    request_resize: Listener(*c.struct_wlr_xdg_toplevel_resize_event) = .{},
-    request_maximize: Listener(*c.wlr_xdg_surface) = .{},
-    commit: Listener(*c_void) = .{},
+    map: wl.Listener(*wlroots.XDGSurface) = .{},
+    unmap: wl.Listener(*wlroots.XDGSurface) = .{},
+    destroy: wl.Listener(*wlroots.XDGSurface) = .{},
 
-    link: List(@This(), "link") = .{},
+    request_move: wl.Listener(*wlroots.XDGToplevel.Events.Move) = .{},
+    request_resize: wl.Listener(*wlroots.XDGToplevel.Events.Resize) = .{},
+    request_maximize: wl.Listener(*wlroots.XDGSurface) = .{},
+    commit: wl.Listener(?*c_void) = .{},
+
+    link: wl.List(@This(), "link") = .{},
 
     /// transformation_matrix maps the view to layout space.
     fn transformation_matrix(view: *const View) Matrix {
@@ -966,11 +871,11 @@ const View = struct {
 
     fn getGeometry(view: *const View) Box {
         // TODO(dh): de-c-ify all of this
-        var box: c.wlr_box = undefined;
-        c.wlr_surface_get_extends(view.xdg_surface.surface, &box);
-        if (view.xdg_surface.geometry.width != 0) {
+        var box: wlroots.Box = undefined;
+        view.xdg_toplevel.base.surface.wlr_surface_get_extends(&box);
+        if (view.xdg_toplevel.base.geometry.width != 0) {
             // XXX handle return value
-            _ = c.wlr_box_intersection(&box, &view.xdg_surface.geometry, &box);
+            _ = &box.wlr_box_intersection(&view.xdg_toplevel.base.geometry, &box);
         }
         return .{
             .x = @intToFloat(f64, box.x),
@@ -989,20 +894,20 @@ const View = struct {
     }
 
     // TODO(dh): implement all of these
-    fn xdgSurfaceMap(listener: *Listener(*c.struct_wlr_xdg_surface), surface: *c.struct_wlr_xdg_surface) callconv(.C) void {
+    fn xdgSurfaceMap(listener: *wl.Listener(*wlroots.XDGSurface), surface: *wlroots.XDGSurface) void {
         const view = @fieldParentPtr(View, "map", listener);
 
         // XXX should only the focussed client be active?
-        _ = c.wlr_xdg_toplevel_set_activated(surface, true);
+        _ = surface.unnamed_0.toplevel.SetActivated(true);
     }
 
-    fn xdgSurfaceUnmap(listener: *Listener(*c.struct_wlr_xdg_surface), surface: *c.struct_wlr_xdg_surface) callconv(.C) void {
+    fn xdgSurfaceUnmap(listener: *wl.Listener(*wlroots.XDGSurface), surface: *wlroots.XDGSurface) void {
         // XXX cancel interactive move, resize, …
         const view = @fieldParentPtr(View, "unmap", listener);
         // TODO(dh): if this was the surface with pointer focus, see if there's another window we can focus instead
     }
 
-    fn xdgSurfaceDestroy(listener: *Listener(*c.struct_wlr_xdg_surface), surface: *c.struct_wlr_xdg_surface) callconv(.C) void {
+    fn xdgSurfaceDestroy(listener: *wl.Listener(*wlroots.XDGSurface), surface: *wlroots.XDGSurface) void {
         switch (surface.role) {
             .WLR_XDG_SURFACE_ROLE_TOPLEVEL => {
                 var view = @fieldParentPtr(View, "destroy", listener);
@@ -1014,7 +919,8 @@ const View = struct {
             },
         }
     }
-    fn xdgToplevelRequestMove(listener: *Listener(*c.struct_wlr_xdg_toplevel_move_event), event: *c.struct_wlr_xdg_toplevel_move_event) callconv(.C) void {
+
+    fn xdgToplevelRequestMove(listener: *wl.Listener(*wlroots.XDGToplevel.Events.Move), event: *wlroots.XDGToplevel.Events.Move) void {
         // TODO(dh): check the serial against recent button presses, to prevent bad clients from invoking this at will
         // TODO(dh): unmaximize the window if it is maximized
         const view = @fieldParentPtr(View, "request_move", listener);
@@ -1036,14 +942,14 @@ const View = struct {
         };
     }
 
-    fn xdgToplevelRequestResize(listener: *Listener(*c.struct_wlr_xdg_toplevel_resize_event), event: *c.struct_wlr_xdg_toplevel_resize_event) callconv(.C) void {
+    fn xdgToplevelRequestResize(listener: *wl.Listener(*wlroots.XDGToplevel.Events.Resize), event: *wlroots.XDGToplevel.Events.Resize) void {
         // TODO(dh): check the serial against recent button presses, to prevent bad clients from invoking this at will
         // TODO(dh): only allow this request from the focussed client
         const view = @fieldParentPtr(View, "request_resize", listener);
         const server = view.server;
 
         // XXX clear focus
-        _ = c.wlr_xdg_toplevel_set_resizing(view.xdg_surface, true);
+        _ = view.xdg_toplevel.SetResizing(true);
 
         server.cursor_mode = .{
             .Resize = view,
@@ -1059,17 +965,17 @@ const View = struct {
         };
     }
 
-    fn xdgToplevelRequestMaximize(listener: *Listener(*c.wlr_xdg_surface), surface: *c.wlr_xdg_surface) callconv(.C) void {
+    fn xdgToplevelRequestMaximize(listener: *wl.Listener(*wlroots.XDGSurface), surface: *wlroots.XDGSurface) void {
         const view = @fieldParentPtr(View, "request_maximize", listener);
 
-        if (surface.unnamed_0.toplevel.*.client_pending.maximized) {
-            if (surface.unnamed_0.toplevel.*.current.maximized) {
+        if (view.xdg_toplevel.client_pending.maximized) {
+            if (view.xdg_toplevel.current.maximized) {
                 // TODO(dh): make sure wlroots doesn't swallow this event. see https://github.com/swaywm/wlroots/issues/2330
-                _ = c.wlr_xdg_toplevel_set_maximized(surface, true);
+                _ = surface.unnamed_0.toplevel.SetMaximized(true);
                 return;
             }
 
-            const output = c.wlr_output_layout_output_at(view.server.output_layout, view.position.x, view.position.y);
+            const output = view.server.output_layout.wlr_output_layout_output_at(view.position.x, view.position.y);
             if (output == null) {
                 return;
             }
@@ -1081,36 +987,36 @@ const View = struct {
                 .height = geom.height,
             };
 
-            const extents = c.wlr_output_layout_get_box(view.server.output_layout, output).*;
-            _ = c.wlr_xdg_toplevel_set_maximized(surface, true);
-            _ = c.wlr_xdg_toplevel_set_size(surface, @intCast(u32, extents.width), @intCast(u32, extents.height));
+            const extents = view.server.output_layout.wlr_output_layout_get_box(output).*;
+            _ = view.xdg_toplevel.SetMaximized(true);
+            _ = view.xdg_toplevel.SetSize(@intCast(u32, extents.width), @intCast(u32, extents.height));
         } else {
-            if (!surface.unnamed_0.toplevel.*.current.maximized) {
+            if (!view.xdg_toplevel.current.maximized) {
                 // TODO(dh): make sure wlroots doesn't swallow this event. see https://github.com/swaywm/wlroots/issues/2330
-                _ = c.wlr_xdg_toplevel_set_maximized(surface, false);
+                _ = view.xdg_toplevel.SetMaximized(false);
                 return;
             }
 
-            _ = c.wlr_xdg_toplevel_set_maximized(surface, false);
+            _ = view.xdg_toplevel.SetMaximized(false);
             // TODO(dh): what happens if the client changed its geometry in the meantime? our old width and height will no longer be correct.
-            _ = c.wlr_xdg_toplevel_set_size(surface, @floatToInt(u32, @round(view.state_before_maximize.width)), @floatToInt(u32, @round(view.state_before_maximize.height)));
+            _ = view.xdg_toplevel.SetSize(@floatToInt(u32, @round(view.state_before_maximize.width)), @floatToInt(u32, @round(view.state_before_maximize.height)));
         }
     }
 
-    fn commit(listener: *Listener(*c_void), data: *c_void) callconv(.C) void {
+    fn commit(listener: *wl.Listener(?*c_void), data: ?*c_void) void {
         const view = @fieldParentPtr(View, "commit", listener);
-        if (view.xdg_surface.unnamed_0.toplevel.*.current.resizing) {
+        if (view.xdg_toplevel.current.resizing) {
             const edges = view.active_resize.edges;
-            if (edges & @intCast(u32, c.WLR_EDGE_LEFT) != 0) {
+            if (edges & @intCast(u32, @enumToInt(wlroots.enum_wlr_edges.WLR_EDGE_LEFT)) != 0) {
                 const delta_width = view.active_resize.orig_geometry.width - view.getGeometry().width;
                 view.position.x = view.active_resize.orig_position.x + delta_width;
             }
-            if (edges & @intCast(u32, c.WLR_EDGE_TOP) != 0) {
+            if (edges & @intCast(u32, @enumToInt(wlroots.enum_wlr_edges.WLR_EDGE_TOP)) != 0) {
                 const delta_height = view.active_resize.orig_geometry.height - view.getGeometry().height;
                 view.position.y = view.active_resize.orig_position.y + delta_height;
             }
         }
-        if (view.xdg_surface.unnamed_0.toplevel.*.current.maximized) {
+        if (view.xdg_toplevel.current.maximized) {
             // OPT(dh): this is causing unnecessary memory writes on each commit
             view.position = .{ .x = 0, .y = 0 };
         } else if (view.state_before_maximize.valid) {
@@ -1122,32 +1028,32 @@ const View = struct {
 
 const Pointer = struct {
     server: *Server,
-    device: *c.wlr_input_device,
+    device: *wlroots.InputDevice,
 
-    link: List(@This(), "link"),
+    link: wl.List(@This(), "link"),
 };
 
 const Keyboard = struct {
     server: *Server,
-    device: *c.wlr_input_device,
+    device: *wlroots.InputDevice,
 
-    modifiers: Listener(*c_void),
-    key: Listener(*c.wlr_event_keyboard_key),
-    keymap: Listener(*c_void),
-    repeat_info: Listener(*c_void),
-    destroy: Listener(*c_void),
+    modifiers: wl.Listener(*wlroots.Keyboard),
+    key: wl.Listener(*wlroots.Keyboard.Events.Key),
+    keymap: wl.Listener(*wlroots.Keyboard),
+    repeat_info: wl.Listener(*wlroots.Keyboard),
+    destroy: wl.Listener(*wlroots.Keyboard),
 
-    link: List(@This(), "link"),
+    link: wl.List(@This(), "link"),
 
     // TODO(dh): implement all of these
-    fn handleModifiers(listener: *Listener(*c_void), data: *c_void) callconv(.C) void {
+    fn handleModifiers(listener: *wl.Listener(*wlroots.Keyboard), data: *wlroots.Keyboard) void {
         const keyboard = @fieldParentPtr(Keyboard, "modifiers", listener);
         const seat = keyboard.server.seat;
         // TODO(dh): is there any benefit to avoiding repeated calls to this?
         seat.setKeyboard(keyboard.device);
         seat.keyboardNotifyModifiers(&keyboard.device.unnamed_0.keyboard.*.modifiers);
     }
-    fn handleKey(listener: *Listener(*c.wlr_event_keyboard_key), key: *c.wlr_event_keyboard_key) callconv(.C) void {
+    fn handleKey(listener: *wl.Listener(*wlroots.Keyboard.Events.Key), key: *wlroots.Keyboard.Events.Key) void {
         const keyboard = @fieldParentPtr(Keyboard, "key", listener);
         const server = keyboard.server;
         const seat = server.seat;
@@ -1156,9 +1062,9 @@ const Keyboard = struct {
         seat.setKeyboard(keyboard.device);
         seat.keyboardNotifyKey(key.time_msec, key.keycode, key.state);
     }
-    fn handleKeymap(listener: *Listener(*c_void), data: *c_void) callconv(.C) void {}
-    fn handleRepeatInfo(listener: *Listener(*c_void), data: *c_void) callconv(.C) void {}
-    fn handleDestroy(listener: *Listener(*c_void), data: *c_void) callconv(.C) void {}
+    fn handleKeymap(listener: *wl.Listener(*wlroots.Keyboard), data: *wlroots.Keyboard) void {}
+    fn handleRepeatInfo(listener: *wl.Listener(*wlroots.Keyboard), data: *wlroots.Keyboard) void {}
+    fn handleDestroy(listener: *wl.Listener(*wlroots.Keyboard), data: *wlroots.Keyboard) void {}
 };
 
 pub fn main() !void {
@@ -1166,71 +1072,70 @@ pub fn main() !void {
     var server: Server = undefined;
     server.init();
 
-    server.dsp = c.wl_display_create() orelse return error.Failure;
-    defer c.wl_display_destroy(server.dsp);
+    server.dsp = try wl.Display.create();
+    defer server.dsp.destroy();
 
-    server.evloop = c.wl_display_get_event_loop(server.dsp) orelse return error.Failure;
-    server.backend = c.wlr_backend_autocreate(server.dsp, null) orelse return error.Failure;
-    defer c.wlr_backend_destroy(server.backend);
+    server.evloop = server.dsp.getEventLoop();
+    server.backend = try wlroots.Backend.autocreate(server.dsp);
+    defer server.backend.destroy();
 
-    server.renderer = c.wlr_backend_get_renderer(server.backend);
-    // XXX
-    _ = c.wlr_renderer_init_wl_display(server.renderer, server.dsp);
-    server.new_output.notify = Output.newOutputNotify;
-    wl_signal_add(&server.backend.events.new_output, &server.new_output);
+    server.renderer = server.backend.getRenderer();
+    try server.renderer.initDisplay(server.dsp);
+    server.new_output.setNotify(Output.newOutputNotify);
+    server.backend.events.new_output.add(&server.new_output);
 
     // TODO(dh): do we need to free anything?
-    _ = c.wlr_compositor_create(server.dsp, server.renderer);
-    _ = c.wlr_data_device_manager_create(server.dsp);
+    _ = wlroots.Compositor.wlr_compositor_create(server.dsp, server.renderer);
+    _ = wlroots.wlr_data_device_manager_create(server.dsp);
 
-    server.output_layout = c.wlr_output_layout_create() orelse return error.Failure;
-    defer c.wlr_output_layout_destroy(server.output_layout);
+    server.output_layout = wlroots.Output.Layout.wlr_output_layout_create() orelse return error.Failure;
+    defer server.output_layout.wlr_output_layout_destroy();
 
-    server.cursor = c.wlr_cursor_create() orelse return error.Failure;
-    defer c.wlr_cursor_destroy(server.cursor);
+    server.cursor = wlroots.Cursor.wlr_cursor_create() orelse return error.Failure;
+    defer server.cursor.wlr_cursor_destroy();
 
-    c.wlr_cursor_attach_output_layout(server.cursor, server.output_layout);
+    server.cursor.wlr_cursor_attach_output_layout(server.output_layout);
 
     // TODO(dh): what do the arguments mean?
-    server.cursor_mgr = c.wlr_xcursor_manager_create(null, 24) orelse return error.Failure;
-    defer c.wlr_xcursor_manager_destroy(server.cursor_mgr);
-    if (!c.wlr_xcursor_manager_load(server.cursor_mgr, 1)) {
+    server.cursor_mgr = wlroots.XCursor.Manager.wlr_xcursor_manager_create(null, 24) orelse return error.Failure;
+    defer server.cursor_mgr.wlr_xcursor_manager_destroy();
+    if (!server.cursor_mgr.wlr_xcursor_manager_load(1)) {
         std.debug.print("failed to load cursor theme", .{});
         return error.Failure;
     }
 
     // TODO(dh): other cursor events
-    server.cursor_motion.notify = Server.cursorMotion;
-    server.cursor_motion_absolute.notify = Server.cursorMotionAbsolute;
-    server.cursor_button.notify = Server.cursorButton;
-    server.cursor_axis.notify = Server.cursorAxis;
-    server.cursor_frame.notify = Server.cursorFrame;
-    wl_signal_add(&server.cursor.events.motion, &server.cursor_motion);
-    wl_signal_add(&server.cursor.events.motion_absolute, &server.cursor_motion_absolute);
-    wl_signal_add(&server.cursor.events.button, &server.cursor_button);
-    wl_signal_add(&server.cursor.events.axis, &server.cursor_axis);
-    wl_signal_add(&server.cursor.events.frame, &server.cursor_frame);
+    server.cursor_motion.setNotify(Server.cursorMotion);
+    server.cursor_motion_absolute.setNotify(Server.cursorMotionAbsolute);
+    server.cursor_button.setNotify(Server.cursorButton);
+    server.cursor_axis.setNotify(Server.cursorAxis);
+    server.cursor_frame.setNotify(Server.cursorFrame);
+    server.cursor.events.motion.add(&server.cursor_motion);
+    server.cursor.events.motion_absolute.add(&server.cursor_motion_absolute);
+    server.cursor.events.button.add(&server.cursor_button);
+    server.cursor.events.axis.add(&server.cursor_axis);
+    server.cursor.events.frame.add(&server.cursor_frame);
 
-    server.new_input.notify = Server.newInput;
-    wl_signal_add(&server.backend.events.new_input, &server.new_input);
+    server.new_input.setNotify(Server.newInput);
+    server.backend.events.new_input.add(&server.new_input);
 
-    server.seat.seat = c.wlr_seat_create(server.dsp, "seat0") orelse return error.Failure;
-    defer c.wlr_seat_destroy(server.seat.seat);
+    server.seat.seat = wlroots.Seat.wlr_seat_create(server.dsp, "seat0") orelse return error.Failure;
+    defer server.seat.seat.wlr_seat_destroy();
 
-    server.seat.request_cursor.notify = Seat.requestCursor;
-    wl_signal_add(&server.seat.seat.events.request_set_cursor, &server.seat.request_cursor);
+    server.seat.request_cursor.setNotify(Seat.requestCursor);
+    server.seat.seat.events.request_set_cursor.add(&server.seat.request_cursor);
 
     // note: no destructor; the shell is a static global
-    server.xdg_shell = c.wlr_xdg_shell_create(server.dsp) orelse return error.Failure;
-    server.new_xdg_surface.notify = Server.newXdgSurface;
-    wl_signal_add(&server.xdg_shell.events.new_surface, &server.new_xdg_surface);
+    server.xdg_shell = wlroots.struct_wlr_xdg_shell.wlr_xdg_shell_create(server.dsp) orelse return error.Failure;
+    server.new_xdg_surface.setNotify(Server.newXdgSurface);
+    server.xdg_shell.events.new_surface.add(&server.new_xdg_surface);
 
-    const socket: [*:0]const u8 = c.wl_display_add_socket_auto(server.dsp) orelse return error.Failure;
+    const socket: [*:0]const u8 = wl.Display.wl_display_add_socket_auto(server.dsp) orelse return error.Failure;
     std.debug.print("listening on {}\n", .{socket});
 
-    if (!c.wlr_backend_start(server.backend)) {
+    if (!server.backend.wlr_backend_start()) {
         return error.Failure;
     }
-    c.wl_display_run(server.dsp);
-    defer c.wl_display_destroy_clients(server.dsp);
+    server.dsp.wl_display_run();
+    defer server.dsp.wl_display_destroy_clients();
 }
