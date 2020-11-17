@@ -3,8 +3,8 @@ const wlroots = @import("../wlroots.zig");
 
 /// struct wlr_subsurface
 pub const Subsurface = extern struct {
-    pub extern fn wlr_subsurface_create(surface: [*c]wlroots.Surface, parent: [*c]wlroots.Surface, version: u32, id: u32, resource_list: [*c]wayland.List(wayland.Resource, "link")) [*c]Subsurface;
-    pub extern fn wlr_subsurface_from_wlr_surface(surface: [*c]wlroots.Surface) [*c]Subsurface;
+    extern fn wlr_subsurface_create(surface: *wlroots.Surface, parent: *wlroots.Surface, version: u32, id: u32, resource_list: ?*wayland.List(wayland.Resource, "link")) ?*Subsurface;
+    extern fn wlr_subsurface_from_wlr_surface(surface: *wlroots.Surface) ?*Subsurface;
 
     /// struct wlr_subsurface_state
     pub const State = extern struct {
@@ -32,4 +32,10 @@ pub const Subsurface = extern struct {
         unmap: wayland.Signal(*Subsurface),
     },
     data: ?*c_void,
+
+    pub fn init(surface: *wlroots.Surface, parent: *wlroots.Surface, version: u32, id: u32, resource_list: ?*wayland.List(wayland.Resource, "link")) !*Subsurface {
+        return surface.wlr_subsurface_create(parent, version, id, resource_list) orelse error.Failure;
+    }
+
+    pub const fromWlrSurface = wlr_subsurface_from_wlr_surface;
 };

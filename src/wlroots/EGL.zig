@@ -12,6 +12,7 @@ pub const EGL = extern struct {
         read_surface: egl.EGLSurface,
     };
 
+    // TODO
     pub extern fn wlr_egl_init(egl: [*c]EGL, platform: egl.EGLenum, remote_display: ?*c_void, config_attribs: [*c]const egl.EGLint, visual_id: egl.EGLint) bool;
     pub extern fn wlr_egl_finish(egl: [*c]EGL) void;
     pub extern fn wlr_egl_bind_display(egl: [*c]EGL, local_display: ?*wayland.Display) bool;

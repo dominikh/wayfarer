@@ -30,7 +30,6 @@ pub const ClientBuffer = @import("wlroots/ClientBuffer.zig").ClientBuffer;
 pub const List = @import("wlroots/List.zig").List;
 pub const XDGPositioner = @import("wlroots/XDGPositioner.zig").XDGPositioner;
 
-pub extern fn wlr_data_device_manager_create(display: *wayland.Display) ?*DataDeviceManager;
 pub extern fn wlr_drag_create(seat_client: [*c]struct_wlr_seat_client, source: [*c]DataSource, icon_surface: [*c]Surface) [*c]Drag;
 pub extern fn wlr_log_get_verbosity() enum_wlr_log_importance;
 pub extern fn wlr_log_init(verbosity: enum_wlr_log_importance, callback: wlr_log_func_t) void;
@@ -107,6 +106,8 @@ pub extern const wlr_data_device_touch_drag_interface: struct_wlr_touch_grab_int
 
 /// struct wlr_data_device_manager
 pub const DataDeviceManager = extern struct {
+    extern fn wlr_data_device_manager_create(display: *wayland.Display) ?*DataDeviceManager;
+
     global: ?*wayland.Global,
     // XXX audit the list type
     data_sources: wayland.List(wayland.Resource, "link"),
@@ -115,6 +116,10 @@ pub const DataDeviceManager = extern struct {
         destroy: wayland.Signal(?*c_void),
     },
     data: ?*c_void,
+
+    pub fn init(display: *wayland.Display) !*DataDeviceManager {
+        return wlr_data_device_manager_create(display) orelse error.Failure;
+    }
 };
 
 /// struct wlr_data_offer

@@ -4,13 +4,13 @@ const udev = @import("../udev.zig");
 
 /// struct wlr_session
 pub const Session = extern struct {
-    pub extern fn wlr_session_create(disp: ?*wayland.Display) [*c]Session;
-    pub extern fn wlr_session_destroy(session: [*c]Session) void;
-    pub extern fn wlr_session_open_file(session: [*c]Session, path: [*:0]const u8) c_int;
-    pub extern fn wlr_session_close_file(session: [*c]Session, fd: c_int) void;
-    pub extern fn wlr_session_signal_add(session: [*c]Session, fd: c_int, listener: [*c]wayland.Listener(?*c_void)) void;
-    pub extern fn wlr_session_change_vt(session: [*c]Session, vt: c_uint) bool;
-    pub extern fn wlr_session_find_gpus(session: [*c]Session, ret_len: usize, ret: [*c]c_int) usize;
+    extern fn wlr_session_create(disp: *wayland.Display) ?*Session;
+    extern fn wlr_session_destroy(session: *Session) void;
+    extern fn wlr_session_open_file(session: *Session, path: [*:0]const u8) c_int;
+    extern fn wlr_session_close_file(session: *Session, fd: c_int) void;
+    extern fn wlr_session_signal_add(session: *Session, fd: c_int, listener: *wayland.Listener(?*c_void)) void;
+    extern fn wlr_session_change_vt(session: *Session, vt: c_uint) bool;
+    extern fn wlr_session_find_gpus(session: *Session, ret_len: usize, ret: *c_int) usize;
 
     /// struct wlr_session_impl
     pub const struct_session_impl = opaque {};
@@ -29,4 +29,16 @@ pub const Session = extern struct {
     events: extern struct {
         destroy: wayland.Signal(?*c_void),
     },
+
+    pub fn init(disp: *wayland.Display) !*Session {
+        return wlr_session_create(disp) orelse error.Failure;
+    }
+
+    pub const destroy = wlr_session_destroy;
+    pub const open_file = wlr_session_open_file;
+    pub const close_file = wlr_session_close_file;
+    // TODO(dh): type-safe listener
+    pub const signal_add = wlr_session_signal_add;
+    pub const change_vt = wlr_session_change_vt;
+    pub const find_gpus = wlr_session_find_gpus;
 };

@@ -3,6 +3,7 @@ const wlroots = @import("../wlroots.zig");
 
 /// struct wlr_list
 pub const List = extern struct {
+    // TODO
     pub extern fn wlr_list_init(list: *List) bool;
     pub extern fn wlr_list_finish(list: *List) void;
     pub extern fn wlr_list_for_each(list: *List, callback: ?fn (?*c_void) callconv(.C) void) void;

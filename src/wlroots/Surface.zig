@@ -5,27 +5,27 @@ const std = @import("std");
 
 /// struct wlr_surface
 pub const Surface = extern struct {
-    pub extern fn wlr_surface_is_subsurface(surface: [*c]Surface) bool;
-    pub extern fn wlr_surface_create(client: ?*wayland.Client, version: u32, id: u32, renderer: *wlroots.Renderer, resource_list: [*c]wayland.struct_wl_list) [*c]Surface;
-    pub extern fn wlr_surface_set_role(surface: [*c]Surface, role: [*c]const Role, role_data: ?*c_void, error_resource: [*c]wayland.Resource, error_code: u32) bool;
-    pub extern fn wlr_surface_has_buffer(surface: [*c]Surface) bool;
-    pub extern fn wlr_surface_get_texture(surface: [*c]Surface) [*c]wlroots.Texture;
-    pub extern fn wlr_surface_get_root_surface(surface: [*c]Surface) [*c]Surface;
-    pub extern fn wlr_surface_point_accepts_input(surface: [*c]Surface, sx: f64, sy: f64) bool;
-    pub extern fn wlr_surface_surface_at(surface: [*c]Surface, sx: f64, sy: f64, sub_x: [*c]f64, sub_y: [*c]f64) [*c]Surface;
-    pub extern fn wlr_surface_send_enter(surface: [*c]Surface, output: [*c]Output) void;
-    pub extern fn wlr_surface_send_leave(surface: [*c]Surface, output: [*c]Output) void;
-    pub extern fn wlr_surface_send_frame_done(surface: [*c]Surface, when: [*c]const std.os.timespec) void;
-    pub extern fn wlr_surface_get_extends(surface: [*c]Surface, box: [*c]wlroots.Box) void;
-    pub extern fn wlr_surface_from_resource(resource: [*c]wayland.Resource) [*c]Surface;
-    pub extern fn wlr_surface_for_each_surface(surface: [*c]Surface, iterator: IteratorFunc, user_data: ?*c_void) void;
-    pub extern fn wlr_surface_get_effective_damage(surface: [*c]Surface, damage: [*c]pixman_region32_t) void;
-    pub extern fn wlr_surface_get_buffer_source_box(surface: [*c]Surface, box: [*c]Fwlroots.Box) void;
-    pub extern fn wlr_surface_accepts_touch(wlr_seat: *Seat, surface: [*c]Surface) bool;
-    pub extern fn wlr_surface_is_xdg_surface(surface: [*c]Surface) bool;
+    extern fn wlr_surface_is_subsurface(surface: *Surface) bool;
+    extern fn wlr_surface_create(client: *wayland.Client, version: u32, id: u32, renderer: *wlroots.Renderer, resource_list: ?*wayland.List(wayland.Resource, "link")) ?*Surface;
+    extern fn wlr_surface_set_role(surface: *Surface, role: *const Role, role_data: ?*c_void, error_resource: *wayland.Resource, error_code: u32) bool;
+    extern fn wlr_surface_has_buffer(surface: *Surface) bool;
+    extern fn wlr_surface_get_texture(surface: *Surface) ?*wlroots.Texture;
+    extern fn wlr_surface_get_root_surface(surface: *Surface) *Surface;
+    extern fn wlr_surface_point_accepts_input(surface: *Surface, sx: f64, sy: f64) bool;
+    extern fn wlr_surface_surface_at(surface: *Surface, sx: f64, sy: f64, sub_x: *f64, sub_y: *f64) ?*Surface;
+    extern fn wlr_surface_send_enter(surface: *Surface, output: *Output) void;
+    extern fn wlr_surface_send_leave(surface: *Surface, output: *Output) void;
+    extern fn wlr_surface_send_frame_done(surface: *Surface, when: *const std.os.timespec) void;
+    extern fn wlr_surface_get_extends(surface: *Surface, box: *wlroots.Box) void;
+    extern fn wlr_surface_from_resource(resource: *wayland.Resource) ?*Surface;
+    extern fn wlr_surface_for_each_surface(surface: *Surface, iterator: IteratorFunc, user_data: ?*c_void) void;
+    extern fn wlr_surface_get_effective_damage(surface: *Surface, damage: *pixman_region32_t) void;
+    extern fn wlr_surface_get_buffer_source_box(surface: *Surface, box: *Fwlroots.Box) void;
+    extern fn wlr_surface_accepts_touch(wlr_seat: *Seat, surface: *Surface) bool;
+    extern fn wlr_surface_is_xdg_surface(surface: *Surface) bool;
 
     /// enum wlr_surface_state_field
-    pub const enum_wlr_surface_state_field = struct {
+    pub const StateField = struct {
         pub const WLR_SURFACE_STATE_BUFFER: c_int = 1;
         pub const WLR_SURFACE_STATE_SURFACE_DAMAGE: c_int = 2;
         pub const WLR_SURFACE_STATE_BUFFER_DAMAGE: c_int = 4;
@@ -97,4 +97,26 @@ pub const Surface = extern struct {
     subsurface_pending_list: wayland.List(wlroots.Subsurface, "parent_pending_link"),
     renderer_destroy: wayland.Listener(?*c_void),
     data: ?*c_void,
+
+    pub fn init(client: *wayland.Client, version: u32, id: u32, renderer: *wlroots.Renderer, resource_list: ?*wayland.List(wayland.Resource, "link")) !*Surface {
+        return wlr_surface_create(client, version, id, renderer, resource_list) orelse error.Failure;
+    }
+
+    pub const isSubsurface = wlr_surface_is_subsurface;
+    pub const setRole = wlr_surface_set_role;
+    pub const hasBuffer = wlr_surface_has_buffer;
+    pub const getTexture = wlr_surface_get_texture;
+    pub const getRootSurface = wlr_surface_get_root_surface;
+    pub const pointAcceptsInput = wlr_surface_point_accepts_input;
+    pub const surfaceAt = wlr_surface_surface_at;
+    pub const sendEnter = wlr_surface_send_enter;
+    pub const sendLeave = wlr_surface_send_leave;
+    pub const sendFrameDone = wlr_surface_send_frame_done;
+    pub const getExtends = wlr_surface_get_extends;
+    pub const fromResource = wlr_surface_from_resource;
+    pub const forEachSurface = wlr_surface_for_each_surface;
+    pub const getEffectiveDamage = wlr_surface_get_effective_damage;
+    pub const getBufferSourceBox = wlr_surface_get_buffer_source_box;
+    pub const acceptsTouch = wlr_surface_accepts_touch;
+    pub const isXdgSurface = wlr_surface_is_xdg_surface;
 };

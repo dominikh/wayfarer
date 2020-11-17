@@ -8,13 +8,12 @@ pub const InputDevice = extern struct {
 
     /// enum wlr_input_device_type
     pub const Type = extern enum(c_int) {
-        Keyboard,
-        Pointer,
-        Touch,
-        TabletTool,
-        TabletPad,
-        Switch,
-        _,
+        keyboard,
+        pointer,
+        touch,
+        tablet_tool,
+        tablet_pad,
+        @"switch",
     };
 
     impl: ?*const Impl,
@@ -39,4 +38,22 @@ pub const InputDevice = extern struct {
     },
     data: ?*c_void,
     link: wayland.ListElement(InputDevice, "link"),
+
+    pub fn device(self: *InputDevice) union(Type) {
+        keyboard: *wlroots.Keyboard,
+        pointer: *wlroots.Pointer,
+        touch: *wlroots.Touch,
+        tablet_tool: *wlroots.Tablet,
+        tablet_pad: *wlroots.Tablet.Pad,
+        @"switch": *wlroots.Switch,
+    } {
+        return switch (self.type) {
+            .keyboard => .{ .keyboard = self.unnamed_0.keyboard },
+            .pointer => .{ .pointer = self.unnamed_0.pointer },
+            .touch => .{ .touch = self.unnamed_0.touch },
+            .tablet_tool => .{ .tablet_tool = self.unnamed_0.tablet },
+            .tablet_pad => .{ .tablet_pad = self.unnamed_0.tablet_pad },
+            .@"switch" => .{ .@"switch" = self.unnamed_0.switch_device },
+        };
+    }
 };

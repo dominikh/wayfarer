@@ -41,7 +41,7 @@ pub const Tablet = extern struct {
                 time_msec: u32,
                 x: f64,
                 y: f64,
-                state: enum_wlr_tablet_tool_tip_state,
+                state: TipState,
             };
 
             /// struct wlr_event_tablet_tool_button
@@ -75,7 +75,7 @@ pub const Tablet = extern struct {
         };
 
         /// enum wlr_tablet_tool_type
-        pub const enum_wlr_tablet_tool_type = extern enum(c_int) {
+        pub const Type = extern enum(c_int) {
             WLR_TABLET_TOOL_TYPE_PEN = 1,
             WLR_TABLET_TOOL_TYPE_ERASER = 2,
             WLR_TABLET_TOOL_TYPE_BRUSH = 3,
@@ -84,17 +84,15 @@ pub const Tablet = extern struct {
             WLR_TABLET_TOOL_TYPE_MOUSE = 6,
             WLR_TABLET_TOOL_TYPE_LENS = 7,
             WLR_TABLET_TOOL_TYPE_TOTEM = 8,
-            _,
         };
 
         /// enum wlr_tablet_tool_tip_state
-        pub const enum_wlr_tablet_tool_tip_state = extern enum(c_int) {
+        pub const TipState = extern enum(c_int) {
             WLR_TABLET_TOOL_TIP_UP,
             WLR_TABLET_TOOL_TIP_DOWN,
-            _,
         };
 
-        type: enum_wlr_tablet_tool_type,
+        type: Type,
         hardware_serial: u64,
         hardware_wacom: u64,
         tilt: bool,
@@ -124,7 +122,7 @@ pub const Tablet = extern struct {
             /// struct wlr_event_tablet_pad_ring
             pub const Ring = extern struct {
                 time_msec: u32,
-                source: enum_wlr_tablet_pad_ring_source,
+                source: RingSource,
                 ring: u32,
                 position: f64,
                 mode: c_uint,
@@ -133,7 +131,7 @@ pub const Tablet = extern struct {
             /// struct wlr_event_tablet_pad_strip
             pub const Strip = extern struct {
                 time_msec: u32,
-                source: enum_wlr_tablet_pad_strip_source,
+                source: StripSource,
                 strip: u32,
                 position: f64,
                 mode: c_uint,
@@ -141,17 +139,15 @@ pub const Tablet = extern struct {
         };
 
         /// enum wlr_tablet_pad_ring_source
-        pub const enum_wlr_tablet_pad_ring_source = extern enum(c_int) {
+        pub const RingSource = extern enum(c_int) {
             WLR_TABLET_PAD_RING_SOURCE_UNKNOWN,
             WLR_TABLET_PAD_RING_SOURCE_FINGER,
-            _,
         };
 
         /// enum wlr_tablet_pad_strip_source
-        pub const enum_wlr_tablet_pad_strip_source = extern enum(c_int) {
+        pub const StripSource = extern enum(c_int) {
             WLR_TABLET_PAD_STRIP_SOURCE_UNKNOWN,
             WLR_TABLET_PAD_STRIP_SOURCE_FINGER,
-            _,
         };
 
         /// struct wlr_tablet_pad_group

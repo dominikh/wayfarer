@@ -3,7 +3,7 @@ const wlroots = @import("../wlroots.zig");
 
 /// struct wlr_xdg_shell
 pub const XDGShell = extern struct {
-    pub extern fn wlr_xdg_shell_create(display: ?*wayland.Display) [*c]XDGShell;
+    extern fn wlr_xdg_shell_create(display: *wayland.Display) ?*XDGShell;
 
     global: ?*wayland.Global,
     clients: wayland.List(wlroots.XDGClient, "link"),
@@ -15,4 +15,8 @@ pub const XDGShell = extern struct {
         destroy: wayland.Signal(?*c_void),
     },
     data: ?*c_void,
+
+    pub fn init(display: *wayland.Display) !*XDGShell {
+        return wlr_xdg_shell_create(display) orelse error.Failure;
+    }
 };

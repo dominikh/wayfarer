@@ -56,11 +56,11 @@ pub const Keyboard = extern struct {
         group: xkb_mod_mask_t,
     };
 
-    pub extern fn wlr_keyboard_set_keymap(kb: *Keyboard, keymap: ?*struct_xkb_keymap) bool;
-    pub extern fn wlr_keyboard_keymaps_match(km1: ?*struct_xkb_keymap, km2: ?*struct_xkb_keymap) bool;
-    pub extern fn wlr_keyboard_set_repeat_info(kb: *Keyboard, rate: i32, delay: i32) void;
-    pub extern fn wlr_keyboard_led_update(keyboard: *Keyboard, leds: u32) void;
-    pub extern fn wlr_keyboard_get_modifiers(keyboard: *Keyboard) u32;
+    extern fn wlr_keyboard_set_keymap(kb: *Keyboard, keymap: ?*struct_xkb_keymap) bool;
+    extern fn wlr_keyboard_keymaps_match(km1: ?*struct_xkb_keymap, km2: ?*struct_xkb_keymap) bool;
+    extern fn wlr_keyboard_set_repeat_info(kb: *Keyboard, rate: i32, delay: i32) void;
+    extern fn wlr_keyboard_led_update(keyboard: *Keyboard, leds: u32) void;
+    extern fn wlr_keyboard_get_modifiers(keyboard: *Keyboard) u32;
 
     impl: ?*const Impl,
     group: ?*Group,
@@ -85,4 +85,10 @@ pub const Keyboard = extern struct {
         destroy: wayland.Signal(*Keyboard),
     },
     data: ?*c_void,
+
+    pub const setKeymap = wlr_keyboard_set_keymap;
+    pub const keymapsMatch = wlr_keyboard_keymaps_match;
+    pub const setRepeatInfo = wlr_keyboard_set_repeat_info;
+    pub const ledUpdate = wlr_keyboard_led_update;
+    pub const getModifiers = wlr_keyboard_get_modifiers;
 };

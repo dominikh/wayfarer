@@ -45,7 +45,7 @@ pub const XDGToplevel = extern struct {
     };
 
     /// struct wlr_xdg_toplevel_state
-    pub const struct_wlr_xdg_toplevel_state = extern struct {
+    pub const State = extern struct {
         maximized: bool,
         fullscreen: bool,
         resizing: bool,
@@ -66,9 +66,9 @@ pub const XDGToplevel = extern struct {
     added: bool,
     parent: ?*wlroots.XDGSurface,
     parent_unmap: wayland.Listener(?*c_void),
-    client_pending: struct_wlr_xdg_toplevel_state,
-    server_pending: struct_wlr_xdg_toplevel_state,
-    current: struct_wlr_xdg_toplevel_state,
+    client_pending: State,
+    server_pending: State,
+    current: State,
     title: ?[*:0]u8,
     app_id: ?[*:0]u8,
     events: extern struct {

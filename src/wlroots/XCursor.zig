@@ -3,16 +3,16 @@ const wlroots = @import("../wlroots.zig");
 
 /// struct wlr_xcursor
 pub const XCursor = extern struct {
-    pub extern fn wlr_xcursor_frame(cursor: [*c]XCursor, time: u32) c_int;
-    pub extern fn wlr_xcursor_get_resize_name(edges: enum_wlr_edges) [*c]const u8;
+    extern fn wlr_xcursor_frame(cursor: *XCursor, time: u32) c_int;
+    extern fn wlr_xcursor_get_resize_name(edges: wlroots.enum_wlr_edges) [*:0]const u8;
 
     /// struct wlr_xcursor_manager
     pub const Manager = extern struct {
-        pub extern fn wlr_xcursor_manager_create(name: ?[*:0]const u8, size: u32) [*c]Manager;
-        pub extern fn wlr_xcursor_manager_destroy(manager: [*c]Manager) void;
-        pub extern fn wlr_xcursor_manager_get_xcursor(manager: [*c]Manager, name: [*:0]const u8, scale: f32) [*c]XCursor;
-        pub extern fn wlr_xcursor_manager_load(manager: [*c]Manager, scale: f32) bool;
-        pub extern fn wlr_xcursor_manager_set_cursor_image(manager: [*c]Manager, name: [*:0]const u8, cursor: [*c]wlroots.Cursor) void;
+        extern fn wlr_xcursor_manager_create(name: ?[*:0]const u8, size: u32) ?*Manager;
+        extern fn wlr_xcursor_manager_destroy(manager: *Manager) void;
+        extern fn wlr_xcursor_manager_get_xcursor(manager: *Manager, name: [*:0]const u8, scale: f32) ?*XCursor;
+        extern fn wlr_xcursor_manager_load(manager: *Manager, scale: f32) bool;
+        extern fn wlr_xcursor_manager_set_cursor_image(manager: *Manager, name: [*:0]const u8, cursor: *wlroots.Cursor) void;
 
         /// struct wlr_xcursor_manager_theme
         pub const ManagerTheme = extern struct {
@@ -24,6 +24,20 @@ pub const XCursor = extern struct {
         name: [*c]u8,
         size: u32,
         scaled_themes: wayland.List(ManagerTheme, "link"),
+
+        pub fn init(name: ?[*:0]const u8, size: u32) !*Manager {
+            return wlr_xcursor_manager_create(name, size) orelse error.Failure;
+        }
+
+        pub fn load(manager: *Manager, scale: f32) !void {
+            if (!manager.wlr_xcursor_manager_load(scale)) {
+                return error.Failure;
+            }
+        }
+
+        pub const deinit = wlr_xcursor_manager_destroy;
+        pub const getXcursor = wlr_xcursor_manager_get_xcursor;
+        pub const setCursorImage = wlr_xcursor_manager_set_cursor_image;
     };
 
     /// struct wlr_xcursor_theme
@@ -52,4 +66,7 @@ pub const XCursor = extern struct {
     images: [*]*Image,
     name: [*:0]u8,
     total_delay: u32,
+
+    pub const frame = wlr_xcursor_frame;
+    pub const getResizeName = wlr_xcursor_get_resize_name;
 };

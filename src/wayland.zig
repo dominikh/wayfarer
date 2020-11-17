@@ -1052,6 +1052,7 @@ pub const struct_wl_surface = opaque {
     }
 };
 
+// TODO(dh): should we give this a type parameter?
 pub const Resource = extern struct {
     pub extern fn wl_resource_post_event(resource: [*c]Resource, opcode: u32, ...) void;
     pub extern fn wl_resource_post_event_array(resource: [*c]Resource, opcode: u32, args: [*c]union_wl_argument) void;

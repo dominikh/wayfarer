@@ -3,8 +3,8 @@ const wlroots = @import("../wlroots.zig");
 
 /// struct wlr_client_buffer
 pub const ClientBuffer = extern struct {
-    pub extern fn wlr_client_buffer_apply_damage(buffer: [*c]ClientBuffer, resource: [*c]wayland.Resource, damage: [*c]pixman.pixman_region32_t) [*c]ClientBuffer;
-    pub extern fn wlr_client_buffer_import(renderer: *wlroots.Renderer, resource: [*c]wayland.Resource) [*c]ClientBuffer;
+    extern fn wlr_client_buffer_apply_damage(buffer: *ClientBuffer, resource: *wayland.Resource, damage: *pixman.pixman_region32_t) ?*ClientBuffer;
+    extern fn wlr_client_buffer_import(renderer: *wlroots.Renderer, resource: [*c]wayland.Resource) *ClientBuffer;
 
     base: wlroots.Buffer,
     resource: [*c]wayland.Resource,
@@ -12,4 +12,14 @@ pub const ClientBuffer = extern struct {
     texture: [*c]wlroots.Texture,
     resource_destroy: wayland.Listener(?*c_void),
     release: wayland.Listener(?*c_void),
+
+    pub fn applyDamage(buffer: *ClientBuffer, reousrce: *wayland.Resource, damage: *pixman.pixman_region32_t) !*ClientBuffer {
+        if (buffer.wlr_client_buffer_apply_damage(resource, damage)) |ret| {
+            return ret;
+        } else {
+            return error.Failure;
+        }
+    }
+
+    pub const import = wlr_client_buffer_import;
 };

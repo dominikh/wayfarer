@@ -9,11 +9,11 @@ pub const Buffer = extern struct {
         get_dmabuf: ?fn (*Buffer, [*]wlroots.DmabufAttributes) callconv(.C) bool,
     };
 
-    pub extern fn wlr_buffer_init(buffer: *Buffer, impl: [*c]const Impl, width: c_int, height: c_int) void;
-    pub extern fn wlr_buffer_drop(buffer: *Buffer) void;
-    pub extern fn wlr_buffer_lock(buffer: *Buffer) [*c]Buffer;
-    pub extern fn wlr_buffer_unlock(buffer: *Buffer) void;
-    pub extern fn wlr_buffer_get_dmabuf(buffer: *Buffer, attribs: [*c]wlroots.DmabufAttributes) bool;
+    extern fn wlr_buffer_init(buffer: *Buffer, impl: *const Impl, width: c_int, height: c_int) void;
+    extern fn wlr_buffer_drop(buffer: *Buffer) void;
+    extern fn wlr_buffer_lock(buffer: *Buffer) *Buffer;
+    extern fn wlr_buffer_unlock(buffer: *Buffer) void;
+    extern fn wlr_buffer_get_dmabuf(buffer: *Buffer, attribs: *wlroots.DmabufAttributes) bool;
 
     impl: [*c]const Impl,
     width: c_int,
@@ -24,4 +24,10 @@ pub const Buffer = extern struct {
         destroy: wayland.Signal(void),
         release: wayland.Signal(void),
     },
+
+    pub const init = wlr_buffer_init;
+    pub const drop = wlr_buffer_drop;
+    pub const lock = wlr_buffer_lock;
+    pub const unlock = wlr_buffer_unlock;
+    pub const get_dmabuf = wlr_buffer_get_dmabuf;
 };

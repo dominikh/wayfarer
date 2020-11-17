@@ -3,7 +3,7 @@ const wlroots = @import("../wlroots.zig");
 
 /// struct wlr_compositor
 pub const Compositor = extern struct {
-    pub extern fn wlr_compositor_create(display: ?*wayland.Display, renderer: *wlroots.Renderer) [*c]Compositor;
+    extern fn wlr_compositor_create(display: *wayland.Display, renderer: *wlroots.Renderer) ?*Compositor;
 
     global: ?*wayland.Global,
     renderer: *wlroots.Renderer,
@@ -13,4 +13,8 @@ pub const Compositor = extern struct {
         new_surface: wayland.Signal(*wlroots.Surface),
         destroy: wayland.Signal(*Compositor),
     },
+
+    pub fn init(display: *wayland.Display, renderer: *wlroots.Renderer) !*Compositor {
+        return wlr_compositor_create(display, renderer) orelse error.Failure;
+    }
 };

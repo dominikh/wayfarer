@@ -2,51 +2,54 @@ const wayland = @import("../wayland.zig");
 usingnamespace @import("../pixman.zig");
 const wlroots = @import("../wlroots.zig");
 
+/// struct wlr_output
 pub const Output = extern struct {
-    pub extern fn wlr_output_enable(output: *Output, enable: bool) void;
-    pub extern fn wlr_output_create_global(output: *Output) void;
-    pub extern fn wlr_output_destroy_global(output: *Output) void;
-    pub extern fn wlr_output_preferred_mode(output: *Output) [*c]Mode;
-    pub extern fn wlr_output_set_mode(output: *Output, mode: [*c]Mode) void;
-    pub extern fn wlr_output_set_custom_mode(output: *Output, width: i32, height: i32, refresh: i32) void;
-    pub extern fn wlr_output_set_transform(output: *Output, transform: wayland.Output.Transform) void;
-    pub extern fn wlr_output_enable_adaptive_sync(output: *Output, enabled: bool) void;
-    pub extern fn wlr_output_set_scale(output: *Output, scale: f32) void;
-    pub extern fn wlr_output_set_subpixel(output: *Output, subpixel: wayland.Output.Subpixel) void;
-    pub extern fn wlr_output_set_description(output: *Output, desc: [*c]const u8) void;
-    pub extern fn wlr_output_schedule_done(output: *Output) void;
-    pub extern fn wlr_output_destroy(output: *Output) void;
-    pub extern fn wlr_output_transformed_resolution(output: *Output, width: [*c]c_int, height: [*c]c_int) void;
-    pub extern fn wlr_output_effective_resolution(output: *Output, width: [*c]c_int, height: [*c]c_int) void;
-    pub extern fn wlr_output_attach_render(output: *Output, buffer_age: [*c]c_int) bool;
-    pub extern fn wlr_output_attach_buffer(output: *Output, buffer: [*c]wlroots.Buffer) void;
-    pub extern fn wlr_output_preferred_read_format(output: *Output, fmt: [*c]enum_wl_shm_format) bool;
-    pub extern fn wlr_output_set_damage(output: *Output, damage: [*c]pixman_region32_t) void;
-    pub extern fn wlr_output_test(output: *Output) bool;
-    pub extern fn wlr_output_commit(output: *Output) bool;
-    pub extern fn wlr_output_rollback(output: *Output) void;
-    pub extern fn wlr_output_schedule_frame(output: *Output) void;
-    pub extern fn wlr_output_get_gamma_size(output: *Output) usize;
-    pub extern fn wlr_output_set_gamma(output: *Output, size: usize, r: [*c]const u16, g: [*c]const u16, b: [*c]const u16) void;
-    pub extern fn wlr_output_export_dmabuf(output: *Output, attribs: [*c]struct_wlr_dmabuf_attributes) bool;
-    pub extern fn wlr_output_from_resource(resource: [*c]wayland.Resource) [*c]Output;
-    pub extern fn wlr_output_lock_attach_render(output: *Output, lock: bool) void;
-    pub extern fn wlr_output_lock_software_cursors(output: *Output, lock: bool) void;
-    pub extern fn wlr_output_render_software_cursors(output: *Output, damage: [*c]pixman_region32_t) void;
-    pub extern fn wlr_output_cursor_create(output: *Output) [*c]OutputCursor;
-    pub extern fn wlr_output_cursor_set_image(cursor: [*c]OutputCursor, pixels: [*c]const u8, stride: i32, width: u32, height: u32, hotspot_x: i32, hotspot_y: i32) bool;
-    pub extern fn wlr_output_cursor_set_surface(cursor: [*c]OutputCursor, surface: [*c]Surface, hotspot_x: i32, hotspot_y: i32) void;
-    pub extern fn wlr_output_cursor_move(cursor: [*c]OutputCursor, x: f64, y: f64) bool;
-    pub extern fn wlr_output_cursor_destroy(cursor: [*c]OutputCursor) void;
-    pub extern fn wlr_output_transform_invert(tr: wayland.Output.Transform) wayland.Output.Transform;
-    pub extern fn wlr_output_transform_compose(tr_a: wayland.Output.Transform, tr_b: wayland.Output.Transform) wayland.Output.Transform;
+    extern fn wlr_output_enable(output: *Output, enable: bool) void;
+    extern fn wlr_output_create_global(output: *Output) void;
+    extern fn wlr_output_destroy_global(output: *Output) void;
+    extern fn wlr_output_preferred_mode(output: *Output) ?*Mode;
+    extern fn wlr_output_set_mode(output: *Output, mode: *Mode) void;
+    extern fn wlr_output_set_custom_mode(output: *Output, width: i32, height: i32, refresh: i32) void;
+    extern fn wlr_output_set_transform(output: *Output, transform: wayland.Output.Transform) void;
+    extern fn wlr_output_enable_adaptive_sync(output: *Output, enabled: bool) void;
+    extern fn wlr_output_set_scale(output: *Output, scale: f32) void;
+    extern fn wlr_output_set_subpixel(output: *Output, subpixel: wayland.Output.Subpixel) void;
+    extern fn wlr_output_set_description(output: *Output, desc: [*:0]const u8) void;
+    extern fn wlr_output_schedule_done(output: *Output) void;
+    extern fn wlr_output_destroy(output: *Output) void;
+    extern fn wlr_output_transformed_resolution(output: *Output, width: *c_int, height: *c_int) void;
+    extern fn wlr_output_effective_resolution(output: *Output, width: *c_int, height: *c_int) void;
+    extern fn wlr_output_attach_render(output: *Output, buffer_age: ?*c_int) bool;
+    extern fn wlr_output_attach_buffer(output: *Output, buffer: *wlroots.Buffer) void;
+    extern fn wlr_output_preferred_read_format(output: *Output, fmt: *enum_wl_shm_format) bool;
+    extern fn wlr_output_set_damage(output: *Output, damage: *pixman_region32_t) void;
+    extern fn wlr_output_test(output: *Output) bool;
+    extern fn wlr_output_commit(output: *Output) bool;
+    extern fn wlr_output_rollback(output: *Output) void;
+    extern fn wlr_output_schedule_frame(output: *Output) void;
+    extern fn wlr_output_get_gamma_size(output: *Output) usize;
+    extern fn wlr_output_set_gamma(output: *Output, size: usize, r: *const u16, g: *const u16, b: *const u16) void;
+    extern fn wlr_output_export_dmabuf(output: *Output, attribs: *struct_wlr_dmabuf_attributes) bool;
+    extern fn wlr_output_from_resource(resource: *wayland.Resource) ?*Output;
+    extern fn wlr_output_lock_attach_render(output: *Output, lock: bool) void;
+    extern fn wlr_output_lock_software_cursors(output: *Output, lock: bool) void;
+    extern fn wlr_output_render_software_cursors(output: *Output, damage: ?*pixman_region32_t) void;
+    extern fn wlr_output_cursor_create(output: *Output) ?*OutputCursor;
+    extern fn wlr_output_cursor_set_image(cursor: *OutputCursor, pixels: [*]const u8, stride: i32, width: u32, height: u32, hotspot_x: i32, hotspot_y: i32) bool;
+    extern fn wlr_output_cursor_set_surface(cursor: *OutputCursor, surface: *Surface, hotspot_x: i32, hotspot_y: i32) void;
+    extern fn wlr_output_cursor_move(cursor: *OutputCursor, x: f64, y: f64) bool;
+    extern fn wlr_output_cursor_destroy(cursor: *OutputCursor) void;
+    extern fn wlr_output_transform_invert(tr: wayland.Output.Transform) wayland.Output.Transform;
+    extern fn wlr_output_transform_compose(tr_a: wayland.Output.Transform, tr_b: wayland.Output.Transform) wayland.Output.Transform;
 
+    /// enum wl_output_mode
     pub const enum_wl_output_mode = extern enum(c_int) {
         WL_OUTPUT_MODE_CURRENT = 1,
         WL_OUTPUT_MODE_PREFERRED = 2,
         _,
     };
 
+    /// struct wlr_output_cursor
     pub const OutputCursor = extern struct {
         output: [*c]Output,
         x: f64,
@@ -67,6 +70,7 @@ pub const Output = extern struct {
         },
     };
 
+    /// enum wlr_output_state_field
     pub const StateField = struct {
         pub const WLR_OUTPUT_STATE_BUFFER: c_int = 1;
         pub const WLR_OUTPUT_STATE_DAMAGE: c_int = 2;
@@ -77,14 +81,20 @@ pub const Output = extern struct {
         pub const WLR_OUTPUT_STATE_ADAPTIVE_SYNC_ENABLED: c_int = 64;
         pub const WLR_OUTPUT_STATE_GAMMA_LUT: c_int = 128;
     };
+
+    /// struct wlr_output_event_damage
     pub const struct_wlr_output_event_damage = extern struct {
         output: *Output,
         damage: [*c]pixman_region32_t,
     };
+
+    /// struct wlr_output_event_precommit
     pub const struct_wlr_output_event_precommit = extern struct {
         output: *Output,
         when: [*c]std.os.timespec,
     };
+
+    /// enum wlr_output_present_flag
     pub const enum_wlr_output_present_flag = extern enum(c_int) {
         WLR_OUTPUT_PRESENT_VSYNC = 1,
         WLR_OUTPUT_PRESENT_HW_CLOCK = 2,
@@ -92,6 +102,8 @@ pub const Output = extern struct {
         WLR_OUTPUT_PRESENT_ZERO_COPY = 8,
         _,
     };
+
+    /// struct wlr_output_event_present
     pub const struct_wlr_output_event_present = extern struct {
         output: *Output,
         commit_seq: u32,
@@ -101,7 +113,9 @@ pub const Output = extern struct {
         flags: u32,
     };
 
+    /// struct wlr_output_layout
     pub const Layout = extern struct {
+        /// enum wlr_direction
         pub const Direction = extern enum(c_int) {
             Up = 1,
             Down = 2,
@@ -110,25 +124,29 @@ pub const Output = extern struct {
             _,
         };
 
-        pub extern fn wlr_output_layout_create() [*c]Layout;
-        pub extern fn wlr_output_layout_destroy(layout: [*c]Layout) void;
-        pub extern fn wlr_output_layout_get(layout: [*c]Layout, reference: [*c]Output) [*c]LayoutOutput;
-        pub extern fn wlr_output_layout_output_at(layout: [*c]Layout, lx: f64, ly: f64) [*c]Output;
-        pub extern fn wlr_output_layout_add(layout: [*c]Layout, output: *Output, lx: c_int, ly: c_int) void;
-        pub extern fn wlr_output_layout_move(layout: [*c]Layout, output: *Output, lx: c_int, ly: c_int) void;
-        pub extern fn wlr_output_layout_remove(layout: [*c]Layout, output: *Output) void;
-        pub extern fn wlr_output_layout_output_coords(layout: [*c]Layout, reference: [*c]Output, lx: [*c]f64, ly: [*c]f64) void;
-        pub extern fn wlr_output_layout_contains_point(layout: [*c]Layout, reference: [*c]Output, lx: c_int, ly: c_int) bool;
-        pub extern fn wlr_output_layout_intersects(layout: [*c]Layout, reference: [*c]Output, target_lbox: [*c]const wlroots.Box) bool;
-        pub extern fn wlr_output_layout_closest_point(layout: [*c]Layout, reference: [*c]Output, lx: f64, ly: f64, dest_lx: [*c]f64, dest_ly: [*c]f64) void;
-        pub extern fn wlr_output_layout_get_box(layout: [*c]Layout, reference: [*c]Output) [*c]wlroots.Box;
-        pub extern fn wlr_output_layout_add_auto(layout: [*c]Layout, output: *Output) void;
-        pub extern fn wlr_output_layout_get_center_output(layout: [*c]Layout) [*c]Output;
-        pub extern fn wlr_output_layout_adjacent_output(layout: [*c]Layout, direction: Direction, reference: [*c]Output, ref_lx: f64, ref_ly: f64) [*c]Output;
-        pub extern fn wlr_output_layout_farthest_output(layout: [*c]Layout, direction: Direction, reference: [*c]Output, ref_lx: f64, ref_ly: f64) [*c]Output;
+        extern fn wlr_output_layout_create() ?*Layout;
+        extern fn wlr_output_layout_destroy(layout: *Layout) void;
+        extern fn wlr_output_layout_get(layout: *Layout, reference: *Output) ?*LayoutOutput;
+        extern fn wlr_output_layout_output_at(layout: *Layout, lx: f64, ly: f64) ?*Output;
+        extern fn wlr_output_layout_add(layout: *Layout, output: *Output, lx: c_int, ly: c_int) void;
+        extern fn wlr_output_layout_move(layout: *Layout, output: *Output, lx: c_int, ly: c_int) void;
+        extern fn wlr_output_layout_remove(layout: *Layout, output: *Output) void;
+        extern fn wlr_output_layout_output_coords(layout: *Layout, reference: *Output, lx: *f64, ly: *f64) void;
+        extern fn wlr_output_layout_contains_point(layout: *Layout, reference: *Output, lx: c_int, ly: c_int) bool;
+        extern fn wlr_output_layout_intersects(layout: *Layout, reference: *Output, target_lbox: *const wlroots.Box) bool;
+        extern fn wlr_output_layout_closest_point(layout: *Layout, reference: ?*Output, lx: f64, ly: f64, dest_lx: *f64, dest_ly: *f64) void;
+        extern fn wlr_output_layout_get_box(layout: *Layout, reference: ?*Output) *wlroots.Box;
+        extern fn wlr_output_layout_add_auto(layout: *Layout, output: *Output) void;
+        extern fn wlr_output_layout_get_center_output(layout: *Layout) ?*Output;
+        extern fn wlr_output_layout_adjacent_output(layout: *Layout, direction: Direction, reference: *Output, ref_lx: f64, ref_ly: f64) ?*Output;
+        extern fn wlr_output_layout_farthest_output(layout: *Layout, direction: Direction, reference: *Output, ref_lx: f64, ref_ly: f64) ?*Output;
 
+        /// struct_wlr_output_layout_state
         pub const struct_wlr_output_layout_state = opaque {};
+
+        /// struct wlr_output_layout_output
         pub const LayoutOutput = extern struct {
+            /// struct wlr_output_layout_output_state
             pub const struct_wlr_output_layout_output_state = opaque {};
 
             output: [*c]Output,
@@ -150,8 +168,29 @@ pub const Output = extern struct {
             destroy: wayland.Signal(?*c_void),
         },
         data: ?*c_void,
+
+        pub fn init() !*Layout {
+            return wlr_output_layout_create() orelse error.Failure;
+        }
+
+        pub const deinit = wlr_output_layout_destroy;
+        pub const get = wlr_output_layout_get;
+        pub const outputAt = wlr_output_layout_output_at;
+        pub const add = wlr_output_layout_add;
+        pub const move = wlr_output_layout_move;
+        pub const remove = wlr_output_layout_remove;
+        pub const outputCoords = wlr_output_layout_output_coords;
+        pub const containsPoint = wlr_output_layout_contains_point;
+        pub const intersects = wlr_output_layout_intersects;
+        pub const closestPoint = wlr_output_layout_closest_point;
+        pub const getBox = wlr_output_layout_get_box;
+        pub const addAuto = wlr_output_layout_add_auto;
+        pub const getCenterOutput = wlr_output_layout_get_center_output;
+        pub const adjacentOutput = wlr_output_layout_adjacent_output;
+        pub const farthestOutput = wlr_output_layout_farthest_output;
     };
 
+    /// struct wlr_output_mode
     pub const Mode = extern struct {
         width: i32,
         height: i32,
@@ -160,7 +199,10 @@ pub const Output = extern struct {
         link: wayland.ListElement(Mode, "link"),
     };
 
+    /// struct wlr_output_impl
     pub const Impl = opaque {};
+
+    /// enum wlr_output_adaptive_sync_status
     pub const enum_wlr_output_adaptive_sync_status = extern enum(c_int) {
         WLR_OUTPUT_ADAPTIVE_SYNC_DISABLED,
         WLR_OUTPUT_ADAPTIVE_SYNC_ENABLED,
@@ -168,6 +210,7 @@ pub const Output = extern struct {
         _,
     };
 
+    /// struct wlr_output_state
     pub const State = extern struct {
         pub const BufferType = extern enum(c_int) {
             WLR_OUTPUT_STATE_BUFFER_RENDER,
@@ -248,4 +291,45 @@ pub const Output = extern struct {
     software_cursor_locks: c_int,
     display_destroy: wayland.Listener(?*c_void),
     data: ?*c_void,
+
+    pub const enable = wlr_output_enable;
+    pub const createGlobal = wlr_output_create_global;
+    pub const destroyGlobal = wlr_output_destroy_global;
+    pub const preferredMode = wlr_output_preferred_mode;
+    pub const setMode = wlr_output_set_mode;
+    pub const setCustomMode = wlr_output_set_custom_mode;
+    pub const setTransform = wlr_output_set_transform;
+    pub const enableAdaptiveSync = wlr_output_enable_adaptive_sync;
+    pub const setScale = wlr_output_set_scale;
+    pub const setSubpixel = wlr_output_set_subpixel;
+    pub const setDescription = wlr_output_set_description;
+    pub const scheduleDone = wlr_output_schedule_done;
+    pub const destroy = wlr_output_destroy;
+    pub const transformedResolution = wlr_output_transformed_resolution;
+    pub const effectiveResolution = wlr_output_effective_resolution;
+    pub const attachRender = wlr_output_attach_render;
+    pub const attachBuffer = wlr_output_attach_buffer;
+    pub const preferredReadFormat = wlr_output_preferred_read_format;
+    pub const setDamage = wlr_output_set_damage;
+    pub const @"test" = wlr_output_test;
+    pub const commit = wlr_output_commit;
+    pub const rollback = wlr_output_rollback;
+    pub const scheduleFrame = wlr_output_schedule_frame;
+    pub const getGammaSize = wlr_output_get_gamma_size;
+    pub const setGamma = wlr_output_set_gamma;
+    pub const exportDmabuf = wlr_output_export_dmabuf;
+    pub const fromResource = wlr_output_from_resource;
+    pub const lockAttachRender = wlr_output_lock_attach_render;
+    pub const lockSoftwareCursors = wlr_output_lock_software_cursors;
+    pub const renderSoftwareCursors = wlr_output_render_software_cursors;
+    pub const cursorSetImage = wlr_output_cursor_set_image;
+    pub const cursorSetSurface = wlr_output_cursor_set_surface;
+    pub const cursorMove = wlr_output_cursor_move;
+    pub const cursorDestroy = wlr_output_cursor_destroy;
+    pub const transformInvert = wlr_output_transform_invert;
+    pub const transformCompose = wlr_output_transform_compose;
+
+    pub fn cursorCreate(output: *Output) !*OutputCursor {
+        return wlr_output_cursor_create(output) orelse error.Failure;
+    }
 };

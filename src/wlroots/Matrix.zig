@@ -1,4 +1,5 @@
 pub const Matrix = struct {
+    // TODO
     pub extern fn wlr_matrix_identity(mat: *[9]f32) void;
     pub extern fn wlr_matrix_multiply(mat: *[9]f32, a: *const [9]f32, b: *const [9]f32) void;
     pub extern fn wlr_matrix_project_box(mat: *[9]f32, box: [*c]const Box, transform: wayland.Output.Transform, rotation: f32, projection: *const [9]f32) void;
@@ -77,8 +78,8 @@ pub const Matrix = struct {
         mul(m, m.*, trans);
     }
 
-    pub fn linear(m: *@This()) *[9]f32 {
-        return @ptrCast(*[9]f32, &m.data);
+    pub fn linear(m: *const @This()) *const [9]f32 {
+        return @ptrCast(*const [9]f32, &m.data);
     }
 
     pub fn print(m: @This()) void {

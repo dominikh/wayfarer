@@ -3,10 +3,10 @@ const wlroots = @import("../wlroots.zig");
 
 /// struct wlr_xdg_popup
 pub const XDGPopup = extern struct {
-    pub extern fn wlr_xdg_popup_destroy(surface: *wlroots.XDGSurface) void;
-    pub extern fn wlr_xdg_popup_get_anchor_point(popup: *XDGPopup, toplevel_sx: *c_int, toplevel_sy: *c_int) void;
-    pub extern fn wlr_xdg_popup_get_toplevel_coords(popup: *XDGPopup, popup_sx: c_int, popup_sy: c_int, toplevel_sx: *c_int, toplevel_sy: *c_int) void;
-    pub extern fn wlr_xdg_popup_unconstrain_from_box(popup: *XDGPopup, toplevel_sx_box: [*c]wlroots.Box) void;
+    extern fn wlr_xdg_popup_destroy(surface: *wlroots.XDGSurface) void;
+    extern fn wlr_xdg_popup_get_anchor_point(popup: *XDGPopup, toplevel_sx: *c_int, toplevel_sy: *c_int) void;
+    extern fn wlr_xdg_popup_get_toplevel_coords(popup: *XDGPopup, popup_sx: c_int, popup_sy: c_int, toplevel_sx: *c_int, toplevel_sy: *c_int) void;
+    extern fn wlr_xdg_popup_unconstrain_from_box(popup: *XDGPopup, toplevel_sx_box: *wlroots.Box) void;
 
     /// struct wlr_xdg_popup_grab
     pub const Grab = extern struct {
@@ -29,4 +29,9 @@ pub const XDGPopup = extern struct {
     geometry: wlroots.Box,
     positioner: wlroots.XDGPositioner,
     grab_link: wayland.ListElement(XDGPopup, "grab_link"), // wlr_xdg_popup_grab::popups
+
+    pub const deinit = wlr_xdg_popup_destroy;
+    pub const getAnchorPoint = wlr_xdg_popup_get_anchor_point;
+    pub const getToplevelCoords = wlr_xdg_popup_get_toplevel_coords;
+    pub const unconstrainFromBox = wlr_xdg_popup_unconstrain_from_box;
 };

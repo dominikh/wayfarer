@@ -326,19 +326,19 @@ const Server = struct {
         if (!server.keyboards.isEmpty()) {
             caps |= @enumToInt(wl.struct_wl_seat.enum_wl_seat_capability.WL_SEAT_CAPABILITY_KEYBOARD);
         }
-        server.seat.setCapabilities(@intCast(u32, caps));
+        server.seat.seat.setCapabilities(@intCast(u32, caps));
     }
 
     fn cursorFrame(listener: *wl.Listener(*wlroots.Cursor), event: *wlroots.Cursor) void {
         const server = @fieldParentPtr(Server, "cursor_frame", listener);
-        server.seat.pointerNotifyFrame();
+        server.seat.seat.pointerNotifyFrame();
     }
 
     fn cursorButton(listener: *wl.Listener(*wlroots.Pointer.Events.Button), event: *wlroots.Pointer.Events.Button) void {
         const server = @fieldParentPtr(Server, "cursor_button", listener);
 
         // XXX handle return value
-        _ = server.seat.pointerNotifyButton(event.time_msec, event.button, event.state);
+        _ = server.seat.seat.pointerNotifyButton(event.time_msec, event.button, event.state);
 
         switch (server.cursor_mode) {
             .Normal => {},
@@ -377,7 +377,7 @@ const Server = struct {
 
     fn cursorMotionAbsolute(listener: *wl.Listener(*wlroots.Pointer.Events.MotionAbsolute), event: *wlroots.Pointer.Events.MotionAbsolute) void {
         const server = @fieldParentPtr(Server, "cursor_motion_absolute", listener);
-        server.cursor.wlr_cursor_warp_absolute(event.device, event.x, event.y);
+        server.cursor.warpAbsolute(event.device, event.x, event.y);
         server.processCursorMotion(event.time_msec);
     }
 
@@ -407,27 +407,27 @@ const Server = struct {
                 // real applications, we'll have to make use of the layout,
                 // support constricting absolute input devices to specific
                 // outputs or portions thereof, etc.
-                var surface: ?*wlroots.Surface = undefined;
+                var surface: *wlroots.Surface = undefined;
                 var sx: f64 = undefined;
                 var sy: f64 = undefined;
                 if (server.findViewUnderCursor(cursor_lx, cursor_ly, &surface, &sx, &sy)) |view| {
                     // XXX set focus only if the view changed from last time
-                    if (view.server.seat.getKeyboard()) |keyboard| {
-                        server.seat.keyboardNotifyEnter(surface.?, &keyboard.*.keycodes, keyboard.*.num_keycodes, &keyboard.*.modifiers);
+                    if (view.server.seat.seat.getKeyboard()) |keyboard| {
+                        server.seat.seat.keyboardNotifyEnter(surface, keyboard.keycodes[0..keyboard.num_keycodes], &keyboard.modifiers);
                     }
 
                     // XXX this probably isn't handling subsurfaces correctly
-                    if (server.seat.seat.pointer_state.focused_surface == surface.?) {
-                        server.seat.pointerNotifyMotion(time_msec, sx, sy);
+                    if (server.seat.seat.pointer_state.focused_surface == surface) {
+                        server.seat.seat.pointerNotifyMotion(time_msec, sx, sy);
                     } else {
-                        server.seat.pointerNotifyEnter(surface.?, sx, sy);
+                        server.seat.seat.pointerNotifyEnter(surface, sx, sy);
                     }
                 } else {
                     // TODO(dh): what if a button was held while the pointer left the surface?
-                    server.seat.pointerNotifyClearFocus();
+                    server.seat.seat.pointerNotifyClearFocus();
 
                     // TODO(dh): is there a fixed set of valid pointer names?
-                    server.cursor_mgr.wlr_xcursor_manager_set_cursor_image("left_ptr", server.cursor);
+                    server.cursor_mgr.setCursorImage("left_ptr", server.cursor);
                 }
             },
 
@@ -479,7 +479,7 @@ const Server = struct {
     }
 
     /// findViewUnderCursor finds the view and surface at position (lx, ly), respecting input regions.
-    fn findViewUnderCursor(server: *Server, lx: f64, ly: f64, surface: *?*wlroots.Surface, sx: *f64, sy: *f64) ?*View {
+    fn findViewUnderCursor(server: *Server, lx: f64, ly: f64, surface: **wlroots.Surface, sx: *f64, sy: *f64) ?*View {
         // OPT(dh): test against the previously found view. most of
         // the time, the cursor moves within a view.
         //
@@ -491,59 +491,59 @@ const Server = struct {
             const view_sx = lx - view.position.x;
             const view_sy = ly - view.position.y;
 
-            surface.* = view.xdg_toplevel.base.wlr_xdg_surface_surface_at(view_sx, view_sy, sx, sy);
-            if (surface.* != null) {
+            if (view.xdg_toplevel.base.surfaceAt(view_sx, view_sy, sx, sy)) |found| {
+                surface.* = found;
                 return view;
             }
         }
         return null;
     }
 
-    fn newInput(listener: *wl.Listener(*wlroots.InputDevice), device: *wlroots.InputDevice) void {
+    fn newInput(listener: *wl.Listener(*wlroots.InputDevice), dev: *wlroots.InputDevice) void {
         const server = @fieldParentPtr(Server, "new_input", listener);
 
-        switch (device.type) {
-            .Keyboard => {
+        switch (dev.device()) {
+            .keyboard => |device| {
                 var keyboard = allocator.create(Keyboard) catch @panic("out of memory");
                 keyboard.server = server;
-                keyboard.device = device;
+                keyboard.device = dev;
 
                 // TODO(dh): a whole bunch of keymap stuff
                 const rules: xkb.struct_xkb_rule_names = undefined;
                 const context = xkb.xkb_context_new(.XKB_CONTEXT_NO_FLAGS);
                 const keymap = xkb.xkb_map_new_from_names(context, &rules, .XKB_KEYMAP_COMPILE_NO_FLAGS);
 
-                _ = device.unnamed_0.keyboard.wlr_keyboard_set_keymap(keymap);
+                _ = device.setKeymap(keymap);
                 xkb.xkb_keymap_unref(keymap);
                 xkb.xkb_context_unref(context);
-                device.unnamed_0.keyboard.wlr_keyboard_set_repeat_info(25, 600);
+                device.setRepeatInfo(25, 600);
 
                 keyboard.modifiers.setNotify(Keyboard.handleModifiers);
                 keyboard.key.setNotify(Keyboard.handleKey);
                 keyboard.keymap.setNotify(Keyboard.handleKeymap);
                 keyboard.repeat_info.setNotify(Keyboard.handleRepeatInfo);
                 keyboard.destroy.setNotify(Keyboard.handleDestroy);
-                device.unnamed_0.keyboard.*.events.modifiers.add(&keyboard.modifiers);
-                device.unnamed_0.keyboard.*.events.key.add(&keyboard.key);
-                device.unnamed_0.keyboard.*.events.keymap.add(&keyboard.keymap);
-                device.unnamed_0.keyboard.*.events.repeat_info.add(&keyboard.repeat_info);
-                device.unnamed_0.keyboard.*.events.destroy.add(&keyboard.destroy);
+                device.events.modifiers.add(&keyboard.modifiers);
+                device.events.key.add(&keyboard.key);
+                device.events.keymap.add(&keyboard.keymap);
+                device.events.repeat_info.add(&keyboard.repeat_info);
+                device.events.destroy.add(&keyboard.destroy);
 
                 server.keyboards.insert(&keyboard.link);
 
-                if (server.seat.getKeyboard() == null) {
+                if (server.seat.seat.getKeyboard() == null) {
                     // set the first added keyboard as active so we
                     // can give new clients keyboard focus even before
                     // any key has been pressed.
-                    server.seat.setKeyboard(device);
+                    server.seat.seat.setKeyboard(dev);
                 }
             },
 
-            .Pointer => {
-                server.cursor.wlr_cursor_attach_input_device(device);
+            .pointer => {
+                server.cursor.attachInputDevice(dev);
                 var pointer = allocator.create(Pointer) catch @panic("out of memory");
                 pointer.server = server;
-                pointer.device = device;
+                pointer.device = dev;
                 server.pointers.insert(&pointer.link);
             },
 
@@ -576,12 +576,12 @@ const Server = struct {
                 view.request_move.setNotify(View.xdgToplevelRequestMove);
                 view.request_resize.setNotify(View.xdgToplevelRequestResize);
                 view.request_maximize.setNotify(View.xdgToplevelRequestMaximize);
-                toplevel.*.events.request_move.add(&view.request_move);
-                toplevel.*.events.request_resize.add(&view.request_resize);
-                toplevel.*.events.request_maximize.add(&view.request_maximize);
+                toplevel.events.request_move.add(&view.request_move);
+                toplevel.events.request_resize.add(&view.request_resize);
+                toplevel.events.request_maximize.add(&view.request_maximize);
 
                 view.commit.setNotify(View.commit);
-                xdg_surface.surface.*.events.commit.add(&view.commit);
+                xdg_surface.surface.events.commit.add(&view.commit);
 
                 server.views.insert(&view.link);
             },
@@ -595,47 +595,7 @@ const Server = struct {
 const Seat = struct {
     seat: *wlroots.Seat,
 
-    request_cursor: wl.Listener(*wlroots.Seat.struct_wlr_seat_pointer_request_set_cursor_event),
-
-    fn setCapabilities(seat: *const Seat, caps: u32) void {
-        seat.seat.wlr_seat_set_capabilities(caps);
-    }
-
-    fn setKeyboard(seat: *const Seat, kbd: *wlroots.InputDevice) void {
-        seat.seat.wlr_seat_set_keyboard(kbd);
-    }
-
-    fn getKeyboard(seat: *const Seat) ?*wlroots.Keyboard {
-        return seat.seat.wlr_seat_get_keyboard();
-    }
-
-    fn keyboardNotifyEnter(seat: *const Seat, surface: *wlroots.Surface, keycodes: [*]u32, num_keycodes: usize, modifiers: *wlroots.Keyboard.Modifiers) void {
-        seat.seat.wlr_seat_keyboard_notify_enter(surface, keycodes, num_keycodes, modifiers);
-    }
-
-    fn keyboardNotifyModifiers(seat: *const Seat, mods: *wlroots.Keyboard.Modifiers) void {
-        seat.seat.wlr_seat_keyboard_notify_modifiers(mods);
-    }
-
-    fn keyboardNotifyKey(seat: *const Seat, time_msec: u32, keycode: u32, state: wlroots.Keyboard.enum_wlr_key_state) void {
-        seat.seat.wlr_seat_keyboard_notify_key(time_msec, keycode, @intCast(u32, @enumToInt(state)));
-    }
-
-    fn pointerNotifyEnter(seat: *const Seat, surface: *wlroots.Surface, sx: f64, sy: f64) void {
-        seat.seat.wlr_seat_pointer_notify_enter(surface, sx, sy);
-    }
-
-    fn pointerNotifyClearFocus(seat: *const Seat) void {
-        seat.seat.wlr_seat_pointer_notify_clear_focus();
-    }
-
-    fn pointerNotifyButton(seat: *const Seat, time_msec: u32, button: u32, state: wlroots.enum_wlr_button_state) u32 {
-        return seat.seat.wlr_seat_pointer_notify_button(time_msec, button, state);
-    }
-
-    fn pointerNotifyMotion(seat: *const Seat, time_msec: u32, sx: f64, sy: f64) void {
-        seat.seat.wlr_seat_pointer_notify_motion(time_msec, sx, sy);
-    }
+    request_cursor: wl.Listener(*wlroots.Seat.Events.RequestSetCursor),
 
     fn pointerNotifyAxis(
         seat: *const Seat,
@@ -645,18 +605,14 @@ const Seat = struct {
         value_discrete: i32,
         source: wlroots.Pointer.enum_wlr_axis_source,
     ) void {
-        seat.seat.wlr_seat_pointer_notify_axis(time_msec, orientation, value, value_discrete, source);
+        seat.seat.pointerNotifyAxis(time_msec, orientation, value, value_discrete, source);
     }
 
-    fn pointerNotifyFrame(seat: *const Seat) void {
-        seat.seat.wlr_seat_pointer_notify_frame();
-    }
-
-    fn requestCursor(listener: *wl.Listener(*wlroots.Seat.struct_wlr_seat_pointer_request_set_cursor_event), event: *wlroots.Seat.struct_wlr_seat_pointer_request_set_cursor_event) void {
+    fn requestCursor(listener: *wl.Listener(*wlroots.Seat.Events.RequestSetCursor), event: *wlroots.Seat.Events.RequestSetCursor) void {
         const seat = @fieldParentPtr(Seat, "request_cursor", listener);
         const server = @fieldParentPtr(Server, "seat", seat);
         if (seat.seat.pointer_state.focused_client == event.seat_client) {
-            server.cursor.wlr_cursor_set_surface(event.surface, event.hotspot_x, event.hotspot_y);
+            server.cursor.setSurface(event.surface, event.hotspot_x, event.hotspot_y);
         }
     }
 };
@@ -685,9 +641,9 @@ const Output = struct {
         const modes = @ptrCast(*wl.List(wlroots.Output.Mode, "link"), &output.modes);
         if (!modes.isEmpty()) {
             const mode: *wlroots.Output.Mode = modes.prev.container();
-            output.wlr_output_set_mode(mode);
-            output.wlr_output_enable(true);
-            if (!output.wlr_output_commit()) {
+            output.setMode(mode);
+            output.enable(true);
+            if (!output.commit()) {
                 return;
             }
         }
@@ -705,7 +661,7 @@ const Output = struct {
         output.events.frame.add(&our_output.frame);
         output.events.present.add(&our_output.present);
 
-        server.output_layout.wlr_output_layout_add_auto(output);
+        server.output_layout.addAuto(output);
     }
 
     fn destroyNotify(listener: *wl.Listener(*wlroots.Output), data: *wlroots.Output) void {
@@ -731,18 +687,18 @@ const Output = struct {
         // XXX don't panic
         std.os.clock_gettime(std.os.CLOCK_MONOTONIC, &now) catch |err| @panic(@errorName(err));
 
-        if (!output.wlr_output_attach_render(null)) {
+        if (!output.attachRender(null)) {
             // TODO(dh): why can this fail?
             return;
         }
 
         var width: c_int = undefined;
         var height: c_int = undefined;
-        our_output.output.wlr_output_effective_resolution(&width, &height);
+        our_output.output.effectiveResolution(&width, &height);
         renderer.begin(width, height);
 
         const color = [_]f32{ 0.3, 0.3, 0.3, 1 };
-        renderer.clear(&color);
+        renderer.clear(color);
 
         var iter = server.views.iterate_reverse();
         while (iter.next()) |view| {
@@ -758,11 +714,11 @@ const Output = struct {
             view.xdg_toplevel.base.forEachSurface(Output.renderSurface, &rdata);
         }
 
-        our_output.output.wlr_output_render_software_cursors(null);
+        our_output.output.renderSoftwareCursors(null);
 
         renderer.end();
         // TODO(dh): why can this fail?
-        _ = our_output.output.wlr_output_commit();
+        _ = our_output.output.commit();
     }
 
     fn present(listener: *wl.Listener(?*c_void), output: ?*c_void) void {
@@ -778,7 +734,7 @@ const Output = struct {
         const output = rdata.output;
         const renderer = output.server.renderer;
 
-        const texture = surface.wlr_surface_get_texture() orelse return;
+        const texture = surface.getTexture() orelse return;
 
         // buffer -> surface -> layout -> output
 
@@ -797,7 +753,7 @@ const Output = struct {
         renderer.renderTextureWithMatrix(texture, m, 1) catch {};
         // XXX make sure the two timespec structs are actually ABI compatible
 
-        surface.wlr_surface_send_frame_done(&rdata.now);
+        surface.sendFrameDone(&rdata.now);
     }
 };
 
@@ -872,7 +828,7 @@ const View = struct {
     fn getGeometry(view: *const View) Box {
         // TODO(dh): de-c-ify all of this
         var box: wlroots.Box = undefined;
-        view.xdg_toplevel.base.surface.wlr_surface_get_extends(&box);
+        view.xdg_toplevel.base.surface.getExtends(&box);
         if (view.xdg_toplevel.base.geometry.width != 0) {
             // XXX handle return value
             _ = &box.wlr_box_intersection(&view.xdg_toplevel.base.geometry, &box);
@@ -886,11 +842,11 @@ const View = struct {
     }
 
     fn width(surface: *const View) i32 {
-        return surface.xdg_surface.surface.*.current.width;
+        return surface.xdg_toplevel.base.surface.current.width;
     }
 
     fn height(surface: *const View) i32 {
-        return surface.xdg_surface.surface.*.current.height;
+        return surface.xdg_toplevel.base.surface.current.height;
     }
 
     // TODO(dh): implement all of these
@@ -975,7 +931,7 @@ const View = struct {
                 return;
             }
 
-            const output = view.server.output_layout.wlr_output_layout_output_at(view.position.x, view.position.y);
+            const output = view.server.output_layout.outputAt(view.position.x, view.position.y);
             if (output == null) {
                 return;
             }
@@ -987,7 +943,7 @@ const View = struct {
                 .height = geom.height,
             };
 
-            const extents = view.server.output_layout.wlr_output_layout_get_box(output).*;
+            const extents = view.server.output_layout.getBox(output).*;
             _ = view.xdg_toplevel.SetMaximized(true);
             _ = view.xdg_toplevel.SetSize(@intCast(u32, extents.width), @intCast(u32, extents.height));
         } else {
@@ -1050,17 +1006,18 @@ const Keyboard = struct {
         const keyboard = @fieldParentPtr(Keyboard, "modifiers", listener);
         const seat = keyboard.server.seat;
         // TODO(dh): is there any benefit to avoiding repeated calls to this?
-        seat.setKeyboard(keyboard.device);
-        seat.keyboardNotifyModifiers(&keyboard.device.unnamed_0.keyboard.*.modifiers);
+        seat.seat.setKeyboard(keyboard.device);
+        seat.seat.keyboardNotifyModifiers(&data.modifiers);
     }
+
     fn handleKey(listener: *wl.Listener(*wlroots.Keyboard.Events.Key), key: *wlroots.Keyboard.Events.Key) void {
         const keyboard = @fieldParentPtr(Keyboard, "key", listener);
         const server = keyboard.server;
         const seat = server.seat;
 
         // TODO(dh): is there any benefit to avoiding repeated calls to this?
-        seat.setKeyboard(keyboard.device);
-        seat.keyboardNotifyKey(key.time_msec, key.keycode, key.state);
+        seat.seat.setKeyboard(keyboard.device);
+        seat.seat.keyboardNotifyKey(key.time_msec, key.keycode, key.state);
     }
     fn handleKeymap(listener: *wl.Listener(*wlroots.Keyboard), data: *wlroots.Keyboard) void {}
     fn handleRepeatInfo(listener: *wl.Listener(*wlroots.Keyboard), data: *wlroots.Keyboard) void {}
@@ -1076,8 +1033,8 @@ pub fn main() !void {
     defer server.dsp.destroy();
 
     server.evloop = server.dsp.getEventLoop();
-    server.backend = try wlroots.Backend.autocreate(server.dsp);
-    defer server.backend.destroy();
+    server.backend = try wlroots.Backend.autocreate(server.dsp, null);
+    defer server.backend.deinit();
 
     server.renderer = server.backend.getRenderer();
     try server.renderer.initDisplay(server.dsp);
@@ -1085,24 +1042,21 @@ pub fn main() !void {
     server.backend.events.new_output.add(&server.new_output);
 
     // TODO(dh): do we need to free anything?
-    _ = wlroots.Compositor.wlr_compositor_create(server.dsp, server.renderer);
-    _ = wlroots.wlr_data_device_manager_create(server.dsp);
+    _ = try wlroots.Compositor.init(server.dsp, server.renderer);
+    _ = try wlroots.DataDeviceManager.init(server.dsp);
 
-    server.output_layout = wlroots.Output.Layout.wlr_output_layout_create() orelse return error.Failure;
-    defer server.output_layout.wlr_output_layout_destroy();
+    server.output_layout = try wlroots.Output.Layout.init();
+    defer server.output_layout.deinit();
 
-    server.cursor = wlroots.Cursor.wlr_cursor_create() orelse return error.Failure;
-    defer server.cursor.wlr_cursor_destroy();
+    server.cursor = try wlroots.Cursor.init();
+    defer server.cursor.deinit();
 
-    server.cursor.wlr_cursor_attach_output_layout(server.output_layout);
+    server.cursor.attachOutputLayout(server.output_layout);
 
     // TODO(dh): what do the arguments mean?
-    server.cursor_mgr = wlroots.XCursor.Manager.wlr_xcursor_manager_create(null, 24) orelse return error.Failure;
-    defer server.cursor_mgr.wlr_xcursor_manager_destroy();
-    if (!server.cursor_mgr.wlr_xcursor_manager_load(1)) {
-        std.debug.print("failed to load cursor theme", .{});
-        return error.Failure;
-    }
+    server.cursor_mgr = try wlroots.XCursor.Manager.init(null, 24);
+    defer server.cursor_mgr.deinit();
+    try server.cursor_mgr.load(1);
 
     // TODO(dh): other cursor events
     server.cursor_motion.setNotify(Server.cursorMotion);
@@ -1119,23 +1073,21 @@ pub fn main() !void {
     server.new_input.setNotify(Server.newInput);
     server.backend.events.new_input.add(&server.new_input);
 
-    server.seat.seat = wlroots.Seat.wlr_seat_create(server.dsp, "seat0") orelse return error.Failure;
-    defer server.seat.seat.wlr_seat_destroy();
+    server.seat.seat = try wlroots.Seat.init(server.dsp, "seat0");
+    defer server.seat.seat.deinit();
 
     server.seat.request_cursor.setNotify(Seat.requestCursor);
     server.seat.seat.events.request_set_cursor.add(&server.seat.request_cursor);
 
     // note: no destructor; the shell is a static global
-    server.xdg_shell = wlroots.XDGShell.wlr_xdg_shell_create(server.dsp) orelse return error.Failure;
+    server.xdg_shell = try wlroots.XDGShell.init(server.dsp);
     server.new_xdg_surface.setNotify(Server.newXdgSurface);
     server.xdg_shell.events.new_surface.add(&server.new_xdg_surface);
 
     const socket: [*:0]const u8 = wl.Display.wl_display_add_socket_auto(server.dsp) orelse return error.Failure;
     std.debug.print("listening on {}\n", .{socket});
 
-    if (!server.backend.wlr_backend_start()) {
-        return error.Failure;
-    }
+    try server.backend.start();
     server.dsp.wl_display_run();
     defer server.dsp.wl_display_destroy_clients();
 }

@@ -3,9 +3,9 @@ const wlroots = @import("../wlroots.zig");
 
 /// struct wlr_xdg_positioner
 pub const XDGPositioner = extern struct {
-    pub extern fn wlr_positioner_invert_x(positioner: *XDGPositioner) void;
-    pub extern fn wlr_positioner_invert_y(positioner: *XDGPositioner) void;
-    pub extern fn wlr_xdg_positioner_get_geometry(positioner: *XDGPositioner) Box;
+    extern fn wlr_positioner_invert_x(positioner: *XDGPositioner) void;
+    extern fn wlr_positioner_invert_y(positioner: *XDGPositioner) void;
+    extern fn wlr_xdg_positioner_get_geometry(positioner: *XDGPositioner) Box;
 
     resource: [*c]wayland.Resource,
     anchor_rect: wlroots.Box,
@@ -20,4 +20,8 @@ pub const XDGPositioner = extern struct {
         x: i32,
         y: i32,
     },
+
+    pub const invertX = wlr_positioner_invert_x;
+    pub const invertY = wlr_positioner_invert_y;
+    pub const getGeometry = wlr_xdg_positioner_get_geometry;
 };
