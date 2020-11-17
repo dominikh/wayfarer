@@ -19,7 +19,7 @@ pub const EGL = extern struct {
     pub extern fn wlr_egl_create_surface(egl: [*c]EGL, window: ?*c_void) egl.EGLSurface;
     pub extern fn wlr_egl_create_image_from_wl_drm(egl: [*c]EGL, data: [*c]wayland.Resource, fmt: [*c]egl.EGLint, width: [*c]c_int, height: [*c]c_int, inverted_y: [*c]bool) egl.EGLImageKHR;
     pub extern fn wlr_egl_create_image_from_dmabuf(egl: [*c]EGL, attributes: [*c]wlroots.DmabufAttributes, external_only: [*c]bool) egl.EGLImageKHR;
-    pub extern fn wlr_egl_get_dmabuf_formats(egl: [*c]EGL) [*c]const wlroots.struct_wlr_drm_format_set;
+    pub extern fn wlr_egl_get_dmabuf_formats(egl: [*c]EGL) [*c]const wlroots.DrmFormatSet;
     pub extern fn wlr_egl_export_image_to_dmabuf(egl: [*c]EGL, image: egl.EGLImageKHR, width: i32, height: i32, flags: u32, attribs: [*c]wlroots.DmabufAttributes) bool;
     pub extern fn wlr_egl_destroy_image(egl: [*c]EGL, image: egl.EGLImageKHR) bool;
     pub extern fn wlr_egl_make_current(egl: [*c]EGL, surface: egl.EGLSurface, buffer_age: [*c]c_int) bool;
@@ -59,6 +59,6 @@ pub const EGL = extern struct {
         eglDebugMessageControlKHR: egl.PFNEGLDEBUGMESSAGECONTROLKHRPROC,
     },
     wl_display: ?*wayland.Display,
-    dmabuf_formats: wlroots.struct_wlr_drm_format_set,
+    dmabuf_formats: wlroots.DrmFormatSet,
     external_only_dmabuf_formats: [*c][*c]egl.EGLBoolean,
 };

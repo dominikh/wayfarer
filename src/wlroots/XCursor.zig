@@ -4,7 +4,7 @@ const wlroots = @import("../wlroots.zig");
 /// struct wlr_xcursor
 pub const XCursor = extern struct {
     extern fn wlr_xcursor_frame(cursor: *XCursor, time: u32) c_int;
-    extern fn wlr_xcursor_get_resize_name(edges: wlroots.enum_wlr_edges) [*:0]const u8;
+    extern fn wlr_xcursor_get_resize_name(edges: wlroots.Edges) [*:0]const u8;
 
     /// struct wlr_xcursor_manager
     pub const Manager = extern struct {

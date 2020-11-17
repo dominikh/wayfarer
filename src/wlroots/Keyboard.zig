@@ -46,7 +46,10 @@ pub const Keyboard = extern struct {
     };
 
     /// struct wlr_keyboard_impl
-    pub const Impl = opaque {};
+    pub const Impl = extern struct {
+        destroy: ?fn (*Keyboard) callconv(.C) void,
+        led_update: ?fn (*Keyboard, u32) callconv(.C) void,
+    };
 
     /// struct wlr_keyboard_modifiers
     pub const Modifiers = extern struct {
@@ -61,6 +64,10 @@ pub const Keyboard = extern struct {
     extern fn wlr_keyboard_set_repeat_info(kb: *Keyboard, rate: i32, delay: i32) void;
     extern fn wlr_keyboard_led_update(keyboard: *Keyboard, leds: u32) void;
     extern fn wlr_keyboard_get_modifiers(keyboard: *Keyboard) u32;
+    extern fn wlr_keyboard_init(keyboard: *Keyboard, impl: *const Impl) void;
+    extern fn wlr_keyboard_destroy(keyboard: *Keyboard) void;
+    extern fn wlr_keyboard_notify_key(keyboard: *Keyboard, event: *Keyboard.Events.Key) void;
+    extern fn wlr_keyboard_notify_modifiers(keyboard: *Keyboard, mods_depressed: u32, mods_latched: u32, mods_locked: u32, group: u32) void;
 
     impl: ?*const Impl,
     group: ?*Group,
@@ -91,4 +98,9 @@ pub const Keyboard = extern struct {
     pub const setRepeatInfo = wlr_keyboard_set_repeat_info;
     pub const ledUpdate = wlr_keyboard_led_update;
     pub const getModifiers = wlr_keyboard_get_modifiers;
+
+    pub const init = wlr_keyboard_init;
+    pub const deinit = wlr_keyboard_destroy;
+    pub const notify_key = wlr_keyboard_notify_key;
+    pub const notify_modifiers = wlr_keyboard_notify_modifiers;
 };

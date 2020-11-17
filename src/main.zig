@@ -151,105 +151,6 @@ const stdout = std.io.getStdout().writer();
 //   - [ ] popup_done
 //   - [ ] repositioned
 
-// const c = @cImport({
-//     @cDefine("WLR_USE_UNSTABLE", {});
-//     @cInclude("wayland-server-core.h");
-//     @cInclude("linux/input-event-codes.h");
-
-//     @cInclude("wlr/backend.h");
-//     // @cInclude("wlr/backend/drm.h");
-//     // @cInclude("wlr/backend/headless.h");
-//     // @cInclude("wlr/backend/interface.h");
-//     // @cInclude("wlr/backend/libinput.h");
-//     @cInclude("wlr/backend/multi.h");
-//     // @cInclude("wlr/backend/noop.h");
-//     // @cInclude("wlr/backend/session.h");
-//     // @cInclude("wlr/backend/wayland.h");
-//     // @cInclude("wlr/backend/x11.h");
-//     // @cInclude("wlr/backend/session/interface.h");
-
-//     @cInclude("wlr/xcursor.h");
-//     // @cInclude("wlr/config.h");
-//     // @cInclude("wlr/version.h");
-//     // @cInclude("wlr/xwayland.h");
-
-//     // @cInclude("wlr/interfaces/wlr_input_device.h");
-//     // @cInclude("wlr/interfaces/wlr_keyboard.h");
-//     // @cInclude("wlr/interfaces/wlr_output.h");
-//     // @cInclude("wlr/interfaces/wlr_pointer.h");
-//     // @cInclude("wlr/interfaces/wlr_switch.h");
-//     // @cInclude("wlr/interfaces/wlr_tablet_pad.h");
-//     // @cInclude("wlr/interfaces/wlr_tablet_tool.h");
-//     // @cInclude("wlr/interfaces/wlr_touch.h");
-
-//     // @cInclude("wlr/render/dmabuf.h");
-//     // @cInclude("wlr/render/drm_format_set.h");
-//     // @cInclude("wlr/render/egl.h");
-//     // @cInclude("wlr/render/gles2.h");
-//     // @cInclude("wlr/render/interface.h");
-//     @cInclude("wlr/render/wlr_renderer.h");
-//     // @cInclude("wlr/render/wlr_texture.h");
-
-//     // @cInclude("wlr/util/edges.h");
-//     @cInclude("wlr/util/log.h");
-//     // @cInclude("wlr/util/region.h");
-
-//     @cInclude("wlr/types/wlr_box.h");
-//     // @cInclude("wlr/types/wlr_buffer.h");
-//     @cInclude("wlr/types/wlr_compositor.h");
-//     @cInclude("wlr/types/wlr_cursor.h");
-//     // @cInclude("wlr/types/wlr_data_control_v1.h");
-//     @cInclude("wlr/types/wlr_data_device.h");
-//     // @cInclude("wlr/types/wlr_export_dmabuf_v1.h");
-//     // @cInclude("wlr/types/wlr_foreign_toplevel_management_v1.h");
-//     // @cInclude("wlr/types/wlr_fullscreen_shell_v1.h");
-//     // @cInclude("wlr/types/wlr_gamma_control_v1.h");
-//     // @cInclude("wlr/types/wlr_gtk_primary_selection.h");
-//     // @cInclude("wlr/types/wlr_idle.h");
-//     // @cInclude("wlr/types/wlr_idle_inhibit_v1.h");
-//     // @cInclude("wlr/types/wlr_input_device.h");
-//     // @cInclude("wlr/types/wlr_input_inhibitor.h");
-//     // @cInclude("wlr/types/wlr_input_method_v2.h");
-//     // @cInclude("wlr/types/wlr_keyboard_group.h");
-//     // @cInclude("wlr/types/wlr_keyboard.h");
-//     // @cInclude("wlr/types/wlr_keyboard_shortcuts_inhibit_v1.h");
-//     // @cInclude("wlr/types/wlr_layer_shell_v1.h");
-//     // @cInclude("wlr/types/wlr_linux_dmabuf_v1.h");
-//     // @cInclude("wlr/types/wlr_list.h");
-//     @cInclude("wlr/types/wlr_matrix.h");
-//     // @cInclude("wlr/types/wlr_output_damage.h");
-//     @cInclude("wlr/types/wlr_output.h");
-//     @cInclude("wlr/types/wlr_output_layout.h");
-//     // @cInclude("wlr/types/wlr_output_management_v1.h");
-//     // @cInclude("wlr/types/wlr_output_power_management_v1.h");
-//     // @cInclude("wlr/types/wlr_pointer_constraints_v1.h");
-//     // @cInclude("wlr/types/wlr_pointer_gestures_v1.h");
-//     // @cInclude("wlr/types/wlr_pointer.h");
-//     // @cInclude("wlr/types/wlr_presentation_time.h");
-//     // @cInclude("wlr/types/wlr_primary_selection.h");
-//     // @cInclude("wlr/types/wlr_primary_selection_v1.h");
-//     // @cInclude("wlr/types/wlr_region.h");
-//     // @cInclude("wlr/types/wlr_relative_pointer_v1.h");
-//     // @cInclude("wlr/types/wlr_screencopy_v1.h");
-//     @cInclude("wlr/types/wlr_seat.h");
-//     // @cInclude("wlr/types/wlr_server_decoration.h");
-//     // @cInclude("wlr/types/wlr_surface.h");
-//     // @cInclude("wlr/types/wlr_switch.h");
-//     // @cInclude("wlr/types/wlr_tablet_pad.h");
-//     // @cInclude("wlr/types/wlr_tablet_tool.h");
-//     // @cInclude("wlr/types/wlr_tablet_v2.h");
-//     // @cInclude("wlr/types/wlr_text_input_v3.h");
-//     // @cInclude("wlr/types/wlr_touch.h");
-//     // @cInclude("wlr/types/wlr_viewporter.h");
-//     // @cInclude("wlr/types/wlr_virtual_keyboard_v1.h");
-//     // @cInclude("wlr/types/wlr_virtual_pointer_v1.h");
-//     @cInclude("wlr/types/wlr_xcursor_manager.h");
-//     // @cInclude("wlr/types/wlr_xdg_decoration_v1.h");
-//     // @cInclude("wlr/types/wlr_xdg_output_v1.h");
-//     @cInclude("wlr/types/wlr_xdg_shell.h");
-//     // @cInclude("wlr/types/wlr_xdg_shell_v6.h");
-// });
-
 const Vec2 = struct {
     x: f64 = 0,
     y: f64 = 0,
@@ -446,14 +347,14 @@ const Server = struct {
                     .x = ar.orig_geometry.width,
                     .y = ar.orig_geometry.height,
                 };
-                if (ar.edges & @intCast(u32, @enumToInt(wlroots.enum_wlr_edges.WLR_EDGE_LEFT)) != 0) {
+                if (ar.edges & @intCast(u32, @enumToInt(wlroots.Edges.WLR_EDGE_LEFT)) != 0) {
                     new_size.x = ar.orig_geometry.width - delta_lx;
-                } else if (ar.edges & @intCast(u32, @enumToInt(wlroots.enum_wlr_edges.WLR_EDGE_RIGHT)) != 0) {
+                } else if (ar.edges & @intCast(u32, @enumToInt(wlroots.Edges.WLR_EDGE_RIGHT)) != 0) {
                     new_size.x = ar.orig_geometry.width + delta_lx;
                 }
-                if (ar.edges & @intCast(u32, @enumToInt(wlroots.enum_wlr_edges.WLR_EDGE_TOP)) != 0) {
+                if (ar.edges & @intCast(u32, @enumToInt(wlroots.Edges.WLR_EDGE_TOP)) != 0) {
                     new_size.y = ar.orig_geometry.height - delta_ly;
-                } else if (ar.edges & @intCast(u32, @enumToInt(wlroots.enum_wlr_edges.WLR_EDGE_BOTTOM)) != 0) {
+                } else if (ar.edges & @intCast(u32, @enumToInt(wlroots.Edges.WLR_EDGE_BOTTOM)) != 0) {
                     new_size.y = ar.orig_geometry.height + delta_ly;
                 }
 
@@ -960,11 +861,11 @@ const View = struct {
         const view = @fieldParentPtr(View, "commit", listener);
         if (view.xdg_toplevel.current.resizing) {
             const edges = view.active_resize.edges;
-            if (edges & @intCast(u32, @enumToInt(wlroots.enum_wlr_edges.WLR_EDGE_LEFT)) != 0) {
+            if (edges & @intCast(u32, @enumToInt(wlroots.Edges.WLR_EDGE_LEFT)) != 0) {
                 const delta_width = view.active_resize.orig_geometry.width - view.getGeometry().width;
                 view.position.x = view.active_resize.orig_position.x + delta_width;
             }
-            if (edges & @intCast(u32, @enumToInt(wlroots.enum_wlr_edges.WLR_EDGE_TOP)) != 0) {
+            if (edges & @intCast(u32, @enumToInt(wlroots.Edges.WLR_EDGE_TOP)) != 0) {
                 const delta_height = view.active_resize.orig_geometry.height - view.getGeometry().height;
                 view.position.y = view.active_resize.orig_position.y + delta_height;
             }

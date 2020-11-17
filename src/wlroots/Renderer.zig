@@ -27,7 +27,7 @@ pub const Renderer = extern struct {
     extern fn wlr_renderer_get_formats(r: *Renderer, len: *usize) [*]const wayland.struct_wl_shm.enum_wl_shm_format;
     extern fn wlr_renderer_resource_is_wl_drm_buffer(renderer: *Renderer, buffer: *wayland.Resource) bool;
     extern fn wlr_renderer_wl_drm_buffer_get_size(renderer: *Renderer, buffer: *wayland.Resource, width: *c_int, height: *c_int) void;
-    extern fn wlr_renderer_get_dmabuf_formats(renderer: *Renderer) *const wlroots.struct_wlr_drm_format_set;
+    extern fn wlr_renderer_get_dmabuf_formats(renderer: *Renderer) *const wlroots.DrmFormatSet;
     extern fn wlr_renderer_read_pixels(r: *Renderer, fmt: wayland.struct_wl_shm.enum_wl_shm_format, flags: ?*u32, stride: u32, width: u32, height: u32, src_x: u32, src_y: u32, dst_x: u32, dst_y: u32, data: ?*c_void) bool;
     extern fn wlr_renderer_blit_dmabuf(r: *Renderer, dst: *wlroots.DmabufAttributes, src: *wlroots.DmabufAttributes) bool;
     extern fn wlr_renderer_format_supported(r: *Renderer, fmt: wayland.struct_wl_shm.enum_wl_shm_format) bool;

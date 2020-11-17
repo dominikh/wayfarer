@@ -4,7 +4,9 @@ const wlroots = @import("../wlroots.zig");
 /// struct wlr_pointer
 pub const Pointer = extern struct {
     /// struct wlr_pointer_impl
-    pub const Impl = opaque {};
+    pub const Impl = extern struct {
+        destroy: ?fn (*Pointer) callconv(.C) void,
+    };
 
     /// struct wlr_pointer_grab_interface
     pub const GrabInterface = extern struct {
@@ -117,6 +119,9 @@ pub const Pointer = extern struct {
         };
     };
 
+    extern fn wlr_pointer_init(pointer: *Pointer, impl: *Impl) void;
+    extern fn wlr_pointer_destroy(pointer: *Pointer) void;
+
     impl: ?*const Impl,
     events: extern struct {
         motion: wayland.Signal(*Events.Motion),
@@ -132,4 +137,7 @@ pub const Pointer = extern struct {
         pinch_end: wayland.Signal(*Events.PinchEnd),
     },
     data: ?*c_void,
+
+    pub const init = wlr_pointer_init;
+    pub const deinit = wlr_pointer_destroy;
 };

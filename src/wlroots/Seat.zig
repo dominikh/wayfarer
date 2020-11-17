@@ -120,7 +120,7 @@ pub const Seat = extern struct {
         events: extern struct {
             destroy: wayland.Signal(?*c_void),
         },
-        serials: wlroots.struct_wlr_serial_ringset,
+        serials: wlroots.SerialRingset,
     };
 
     pub const Events = struct {
@@ -141,7 +141,7 @@ pub const Seat = extern struct {
 
         /// struct wlr_seat_request_set_primary_selection_event
         pub const RequestSetPrimarySelection = extern struct {
-            source: ?*wlroots.struct_wlr_primary_selection_source,
+            source: ?*wlroots.PrimarySelectionSource,
             serial: u32,
         };
 
@@ -244,7 +244,7 @@ pub const Seat = extern struct {
     selection_source: [*c]wlroots.DataSource,
     selection_serial: u32,
     selection_offers: wayland.List(wlroots.DataOffer, "link"),
-    primary_selection_source: ?*wlroots.struct_wlr_primary_selection_source,
+    primary_selection_source: ?*wlroots.PrimarySelectionSource,
     primary_selection_serial: u32,
     drag: [*c]wlroots.Drag,
     drag_source: [*c]wlroots.DataSource,

@@ -59,6 +59,18 @@ test "Cursor" {
     _ = wlroots.Cursor.mapInputToRegion;
 }
 
+test "DataSource" {
+    _ = wlroots.DataSource;
+    _ = wlroots.DataSource.Impl;
+    _ = wlroots.DataSource.accept;
+    _ = wlroots.DataSource.deinit;
+    _ = wlroots.DataSource.dndAction;
+    _ = wlroots.DataSource.dndDrop;
+    _ = wlroots.DataSource.dndFinish;
+    _ = wlroots.DataSource.init;
+    _ = wlroots.DataSource.send;
+}
+
 test "Drag" {
     _ = wlroots.Drag;
     _ = wlroots.Drag.Type;
@@ -70,6 +82,16 @@ test "Drag" {
 
 test "EGL" {
     // TODO
+}
+
+test "Idle" {
+    _ = wlroots.Idle;
+    _ = wlroots.Idle.Timeout;
+    _ = wlroots.Idle.init;
+    _ = wlroots.Idle.notifyActivity;
+    _ = wlroots.Idle.setEnabled;
+    _ = wlroots.Idle.Timeout.init;
+    _ = wlroots.Idle.Timeout.deinit;
 }
 
 test "InputDevice" {
@@ -94,6 +116,10 @@ test "Keyboard" {
     _ = wlroots.Keyboard.setRepeatInfo;
     _ = wlroots.Keyboard.ledUpdate;
     _ = wlroots.Keyboard.getModifiers;
+    _ = wlroots.Keyboard.init;
+    _ = wlroots.Keyboard.deinit;
+    _ = wlroots.Keyboard.notify_key;
+    _ = wlroots.Keyboard.notify_modifiers;
 }
 
 test "List" {
@@ -195,6 +221,8 @@ test "Pointer" {
     _ = wlroots.Pointer.Events.PinchBegin;
     _ = wlroots.Pointer.Events.PinchUpdate;
     _ = wlroots.Pointer.Events.PinchEnd;
+    _ = wlroots.Pointer.init;
+    _ = wlroots.Pointer.deinit;
 }
 
 test "Renderer" {
@@ -359,6 +387,8 @@ test "Switch" {
     _ = wlroots.Switch.Events;
     _ = wlroots.Switch.Events.Toggle;
     _ = wlroots.Switch.Impl;
+    _ = wlroots.Switch.init;
+    _ = wlroots.Switch.deinit;
 }
 
 test "Tablet" {
@@ -382,7 +412,11 @@ test "Tablet" {
     _ = wlroots.Tablet.Pad.StripSource;
     _ = wlroots.Tablet.Pad.Group;
     _ = wlroots.Tablet.Pad.PadImpl;
+    _ = wlroots.Tablet.Pad.init;
+    _ = wlroots.Tablet.Pad.deinit;
     _ = wlroots.Tablet.Impl;
+    _ = wlroots.Tablet.init;
+    _ = wlroots.Tablet.deinit;
 }
 
 test "Texture" {
@@ -406,6 +440,8 @@ test "Touch" {
     _ = wlroots.Touch.Events.Up;
     _ = wlroots.Touch.Events.Motion;
     _ = wlroots.Touch.Events.Cancel;
+    _ = wlroots.Touch.init;
+    _ = wlroots.Touch.deinit;
 }
 
 test "XCursor" {

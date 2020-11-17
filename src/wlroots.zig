@@ -34,15 +34,17 @@ pub const Buffer = @import("wlroots/Buffer.zig").Buffer;
 pub const ClientBuffer = @import("wlroots/ClientBuffer.zig").ClientBuffer;
 pub const List = @import("wlroots/List.zig").List;
 pub const XDGPositioner = @import("wlroots/XDGPositioner.zig").XDGPositioner;
+pub const DataSource = @import("wlroots/DataSource.zig").DataSource;
+pub const Idle = @import("wlroots/Idle.zig").Idle;
 
-pub extern fn wlr_drag_create(seat_client: [*c]struct_wlr_seat_client, source: [*c]DataSource, icon_surface: [*c]Surface) [*c]Drag;
-pub extern fn wlr_log_get_verbosity() enum_wlr_log_importance;
-pub extern fn wlr_log_init(verbosity: enum_wlr_log_importance, callback: wlr_log_func_t) void;
+pub extern fn wlr_drag_create(seat_client: [*c]Seat.Client, source: [*c]DataSource, icon_surface: [*c]Surface) [*c]Drag;
+pub extern fn wlr_log_get_verbosity() LogImportance;
+pub extern fn wlr_log_init(verbosity: LogImportance, callback: wlr_log_func_t) void;
 pub extern fn wlr_resource_get_buffer_size(resource: [*c]wayland.Resource, renderer: *Renderer, width: [*c]c_int, height: [*c]c_int) bool;
 pub extern fn wlr_resource_is_buffer(resource: [*c]wayland.Resource) bool;
 
 /// enum wlr_log_importance
-pub const enum_wlr_log_importance = extern enum(c_int) {
+pub const LogImportance = extern enum(c_int) {
     silent = 0,
     @"error" = 1,
     info = 2,
@@ -56,51 +58,20 @@ pub const ButtonState = extern enum(c_int) {
 };
 
 /// struct wlr_serial_range
-pub const struct_wlr_serial_range = extern struct {
+pub const SerialRange = extern struct {
     min_incl: u32,
     max_incl: u32,
 };
 
 /// struct wlr_serial_ringset
-pub const struct_wlr_serial_ringset = extern struct {
-    data: [128]struct_wlr_serial_range,
+pub const SerialRingset = extern struct {
+    data: [128]SerialRange,
     end: c_int,
     count: c_int,
 };
 
-/// struct wlr_data_source
-pub const DataSource = extern struct {
-    /// struct wlr_data_source_impl
-    pub const Impl = extern struct {
-        send: ?fn ([*c]DataSource, [*c]const u8, i32) callconv(.C) void,
-        accept: ?fn ([*c]DataSource, u32, [*c]const u8) callconv(.C) void,
-        destroy: ?fn ([*c]DataSource) callconv(.C) void,
-        dnd_drop: ?fn ([*c]DataSource) callconv(.C) void,
-        dnd_finish: ?fn ([*c]DataSource) callconv(.C) void,
-        dnd_action: ?fn ([*c]DataSource, wayland.enum_wl_data_device_manager_dnd_action) callconv(.C) void,
-    };
-
-    pub extern fn wlr_data_source_accept(source: *DataSource, serial: u32, mime_type: [*:0]const u8) void;
-    pub extern fn wlr_data_source_destroy(source: *DataSource) void;
-    pub extern fn wlr_data_source_dnd_action(source: *DataSource, action: wayland.enum_wl_data_device_manager_dnd_action) void;
-    pub extern fn wlr_data_source_dnd_drop(source: *DataSource) void;
-    pub extern fn wlr_data_source_dnd_finish(source: *DataSource) void;
-    pub extern fn wlr_data_source_init(source: *DataSource, impl: [*c]const Impl) void;
-    pub extern fn wlr_data_source_send(source: *DataSource, mime_type: [*:0]const u8, fd: i32) void;
-
-    impl: [*c]const Impl,
-    mime_types: wayland.struct_wl_array,
-    actions: i32,
-    accepted: bool,
-    current_dnd_action: wayland.enum_wl_data_device_manager_dnd_action,
-    compositor_action: u32,
-    events: extern struct {
-        destroy: wayland.Signal(?*c_void),
-    },
-};
-
 /// struct wlr_primary_selection_source
-pub const struct_wlr_primary_selection_source = opaque {};
+pub const PrimarySelectionSource = opaque {};
 
 pub extern const wlr_data_device_pointer_drag_interface: struct_wlr_pointer_grab_interface;
 pub extern const wlr_data_device_keyboard_drag_interface: struct_wlr_keyboard_grab_interface;
@@ -127,15 +98,14 @@ pub const DataDeviceManager = extern struct {
 /// struct wlr_data_offer
 pub const DataOffer = extern struct {
     /// enum wlr_data_offer_type
-    pub const enum_wlr_data_offer_type = extern enum(c_int) {
-        WLR_DATA_OFFER_SELECTION,
-        WLR_DATA_OFFER_DRAG,
-        _,
+    pub const Type = extern enum(c_int) {
+        selection,
+        drag,
     };
 
     resource: [*c]wayland.Resource,
     source: [*c]DataSource,
-    type: enum_wlr_data_offer_type,
+    type: Type,
     link: wayland.ListElement(DataOffer, "link"),
     actions: u32,
     preferred_action: wayland.enum_wl_data_device_manager_dnd_action,
@@ -190,11 +160,11 @@ pub const DmabufAttributes = extern struct {
 pub const struct_wlr_drm_format = opaque {}; // /nix/store/137db3flxx6vgsaqj733yjfp175cajdj-wlroots-0.11.0/include/wlr/render/drm_format_set.h:11:11: warning: struct demoted to opaque type - has variable length array
 
 /// struct wlr_drm_format_set
-pub const struct_wlr_drm_format_set = extern struct {
-    pub extern fn wlr_drm_format_set_add(set: [*c]struct_wlr_drm_format_set, format: u32, modifier: u64) bool;
-    pub extern fn wlr_drm_format_set_finish(set: [*c]struct_wlr_drm_format_set) void;
-    pub extern fn wlr_drm_format_set_get(set: [*c]const struct_wlr_drm_format_set, format: u32) ?*const struct_wlr_drm_format;
-    pub extern fn wlr_drm_format_set_has(set: [*c]const struct_wlr_drm_format_set, format: u32, modifier: u64) bool;
+pub const DrmFormatSet = extern struct {
+    pub extern fn wlr_drm_format_set_add(set: [*c]DrmFormatSet, format: u32, modifier: u64) bool;
+    pub extern fn wlr_drm_format_set_finish(set: [*c]DrmFormatSet) void;
+    pub extern fn wlr_drm_format_set_get(set: [*c]const DrmFormatSet, format: u32) ?*const struct_wlr_drm_format;
+    pub extern fn wlr_drm_format_set_has(set: [*c]const DrmFormatSet, format: u32, modifier: u64) bool;
 
     len: usize,
     cap: usize,
@@ -202,7 +172,7 @@ pub const struct_wlr_drm_format_set = extern struct {
 };
 
 /// enum wlr_edges
-pub const enum_wlr_edges = extern enum(c_int) {
+pub const Edges = extern enum(c_int) {
     WLR_EDGE_NONE = 0,
     WLR_EDGE_TOP = 1,
     WLR_EDGE_BOTTOM = 2,
@@ -233,6 +203,22 @@ pub const FBox = extern struct {
     y: f64,
     width: f64,
     height: f64,
+};
+
+/// struct wlr_input_inhibit_manager
+pub const InputInhibitManager = extern struct {
+    global: ?*wayland.Global,
+    active_client: ?*wayland.Client,
+    active_inhibitor: ?*wayland.Resource,
+    display_destroy: wayland.Listener(?*c_void),
+    events: extern struct {
+        activate: wayland.Signal(*InputInhibitManager),
+        deactivate: wayland.Signal(*InputInhibitManager),
+        destroy: wayland.Signal(*InputInhibitManager),
+    },
+    data: ?*c_void,
+
+    pub extern fn wlr_input_inhibit_manager_create(display: *wayland.Display) ?*InputInhibitManager;
 };
 
 pub const WLR_HAS_EGLMESAEXT_H = 1;

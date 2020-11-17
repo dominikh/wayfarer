@@ -29,11 +29,19 @@ pub const Switch = extern struct {
     };
 
     /// struct wlr_switch_impl
-    pub const Impl = opaque {};
+    pub const Impl = extern struct {
+        destroy: ?fn (*Switch) callconv(.C) void,
+    };
 
     impl: ?*Impl,
     events: extern struct {
         toggle: wayland.Signal(*Events.Toggle),
     },
     data: ?*c_void,
+
+    extern fn wlr_switch_init(switch_device: *Switch, impl: *Impl) void;
+    extern fn wlr_switch_destroy(switch_device: *Switch) void;
+
+    pub const init = wlr_switch_init;
+    pub const deinit = wlr_switch_destroy;
 };

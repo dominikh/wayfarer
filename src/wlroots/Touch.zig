@@ -4,7 +4,9 @@ const wlroots = @import("../wlroots.zig");
 /// struct wlr_touch
 pub const Touch = extern struct {
     /// struct wlr_touch_impl
-    pub const Impl = opaque {};
+    pub const Impl = extern struct {
+        destroy: ?fn (*Touch) callconv(.C) void,
+    };
 
     pub const Events = struct {
         /// struct wlr_event_touch_down
@@ -40,6 +42,9 @@ pub const Touch = extern struct {
         };
     };
 
+    extern fn wlr_touch_init(touch: *Touch, impl: *Impl) void;
+    extern fn wlr_touch_destroy(touch: *Touch) void;
+
     impl: ?*const Impl,
     events: extern struct {
         down: wayland.Signal(*Events.Down),
@@ -48,4 +53,7 @@ pub const Touch = extern struct {
         cancel: wayland.Signal(*Events.Cancel),
     },
     data: ?*c_void,
+
+    pub const init = wlr_touch_init;
+    pub const deinit = wlr_touch_destroy;
 };

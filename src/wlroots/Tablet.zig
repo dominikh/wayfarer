@@ -162,7 +162,9 @@ pub const Tablet = extern struct {
         };
 
         /// struct wlr_tablet_pad_impl
-        pub const PadImpl = opaque {};
+        pub const PadImpl = extern struct {
+            destroy: ?fn (*Pad) callconv(.C) void,
+        };
 
         impl: ?*PadImpl,
         events: extern struct {
@@ -177,10 +179,18 @@ pub const Tablet = extern struct {
         groups: wayland.List(Group, "link"),
         paths: wlroots.List,
         data: ?*c_void,
+
+        pub extern fn wlr_tablet_pad_init(pad: *Pad, impl: *PadImpl) void;
+        pub extern fn wlr_tablet_pad_destroy(pad: *Pad) void;
+
+        pub const init = wlr_tablet_pad_init;
+        pub const deinit = wlr_tablet_pad_destroy;
     };
 
     /// struct wlr_tablet_impl
-    pub const Impl = opaque {};
+    pub const Impl = extern struct {
+        destroy: ?fn (*Tablet) callconv(.C) void,
+    };
 
     impl: ?*Impl,
     events: extern struct {
@@ -192,4 +202,10 @@ pub const Tablet = extern struct {
     name: [*c]u8,
     paths: wlroots.List,
     data: ?*c_void,
+
+    extern fn wlr_tablet_init(tablet: *Tablet, impl: *Impl) void;
+    extern fn wlr_tablet_destroy(tablet: *Tablet) void;
+
+    pub const init = wlr_tablet_init;
+    pub const deinit = wlr_tablet_destroy;
 };
