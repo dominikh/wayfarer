@@ -31,7 +31,7 @@ pub const Tablet = extern struct {
                 time_msec: u32,
                 x: f64,
                 y: f64,
-                state: enum_wlr_tablet_tool_proximity_state,
+                state: ProximityState,
             };
 
             /// struct wlr_event_tablet_tool_tip
@@ -50,46 +50,45 @@ pub const Tablet = extern struct {
                 tool: [*c]Tool,
                 time_msec: u32,
                 button: u32,
-                state: wlroots.enum_wlr_button_state,
+                state: wlroots.ButtonState,
             };
         };
 
         /// enum wlr_tablet_tool_proximity_state
-        pub const enum_wlr_tablet_tool_proximity_state = extern enum(c_int) {
-            WLR_TABLET_TOOL_PROXIMITY_OUT,
-            WLR_TABLET_TOOL_PROXIMITY_IN,
-            _,
+        pub const ProximityState = extern enum(c_int) {
+            out,
+            in,
         };
 
         /// enum wlr_tablet_tool_axes
         pub const Axes = struct {
-            pub const WLR_TABLET_TOOL_AXIS_X: c_int = 1;
-            pub const WLR_TABLET_TOOL_AXIS_Y: c_int = 2;
-            pub const WLR_TABLET_TOOL_AXIS_DISTANCE: c_int = 4;
-            pub const WLR_TABLET_TOOL_AXIS_PRESSURE: c_int = 8;
-            pub const WLR_TABLET_TOOL_AXIS_TILT_X: c_int = 16;
-            pub const WLR_TABLET_TOOL_AXIS_TILT_Y: c_int = 32;
-            pub const WLR_TABLET_TOOL_AXIS_ROTATION: c_int = 64;
-            pub const WLR_TABLET_TOOL_AXIS_SLIDER: c_int = 128;
-            pub const WLR_TABLET_TOOL_AXIS_WHEEL: c_int = 256;
+            pub const x: c_int = 1;
+            pub const y: c_int = 2;
+            pub const distance: c_int = 4;
+            pub const pressure: c_int = 8;
+            pub const tilt_x: c_int = 16;
+            pub const tilt_y: c_int = 32;
+            pub const rotation: c_int = 64;
+            pub const slider: c_int = 128;
+            pub const wheel: c_int = 256;
         };
 
         /// enum wlr_tablet_tool_type
         pub const Type = extern enum(c_int) {
-            WLR_TABLET_TOOL_TYPE_PEN = 1,
-            WLR_TABLET_TOOL_TYPE_ERASER = 2,
-            WLR_TABLET_TOOL_TYPE_BRUSH = 3,
-            WLR_TABLET_TOOL_TYPE_PENCIL = 4,
-            WLR_TABLET_TOOL_TYPE_AIRBRUSH = 5,
-            WLR_TABLET_TOOL_TYPE_MOUSE = 6,
-            WLR_TABLET_TOOL_TYPE_LENS = 7,
-            WLR_TABLET_TOOL_TYPE_TOTEM = 8,
+            pen = 1,
+            eraser = 2,
+            brush = 3,
+            pencil = 4,
+            airbrush = 5,
+            mouse = 6,
+            lens = 7,
+            totem = 8,
         };
 
         /// enum wlr_tablet_tool_tip_state
         pub const TipState = extern enum(c_int) {
-            WLR_TABLET_TOOL_TIP_UP,
-            WLR_TABLET_TOOL_TIP_DOWN,
+            up,
+            down,
         };
 
         type: Type,
@@ -109,12 +108,12 @@ pub const Tablet = extern struct {
 
     /// struct wlr_tablet_pad
     pub const Pad = extern struct {
-        const Events = struct {
+        pub const Events = struct {
             /// struct wlr_event_tablet_pad_button
             pub const Button = extern struct {
                 time_msec: u32,
                 button: u32,
-                state: wlroots.enum_wlr_button_state,
+                state: wlroots.ButtonState,
                 mode: c_uint,
                 group: c_uint,
             };
@@ -140,14 +139,14 @@ pub const Tablet = extern struct {
 
         /// enum wlr_tablet_pad_ring_source
         pub const RingSource = extern enum(c_int) {
-            WLR_TABLET_PAD_RING_SOURCE_UNKNOWN,
-            WLR_TABLET_PAD_RING_SOURCE_FINGER,
+            unknown,
+            finger,
         };
 
         /// enum wlr_tablet_pad_strip_source
         pub const StripSource = extern enum(c_int) {
-            WLR_TABLET_PAD_STRIP_SOURCE_UNKNOWN,
-            WLR_TABLET_PAD_STRIP_SOURCE_FINGER,
+            unknown,
+            finger,
         };
 
         /// struct wlr_tablet_pad_group
@@ -163,9 +162,9 @@ pub const Tablet = extern struct {
         };
 
         /// struct wlr_tablet_pad_impl
-        pub const Impl = opaque {};
+        pub const PadImpl = opaque {};
 
-        impl: ?*Impl,
+        impl: ?*PadImpl,
         events: extern struct {
             button: wayland.Signal(*Events.Button),
             ring: wayland.Signal(*Events.Ring),

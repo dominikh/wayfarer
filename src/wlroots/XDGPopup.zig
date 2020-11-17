@@ -11,9 +11,9 @@ pub const XDGPopup = extern struct {
     /// struct wlr_xdg_popup_grab
     pub const Grab = extern struct {
         client: ?*wayland.Client,
-        pointer_grab: wlroots.Seat.struct_wlr_seat_pointer_grab,
-        keyboard_grab: wlroots.Seat.struct_wlr_seat_keyboard_grab,
-        touch_grab: wlroots.Seat.struct_wlr_seat_touch_grab,
+        pointer_grab: wlroots.Seat.PointerGrab,
+        keyboard_grab: wlroots.Seat.KeyboardGrab,
+        touch_grab: wlroots.Seat.TouchGrab,
         seat: [*c]wlroots.Seat,
         popups: wayland.List(XDGPopup, "grab_link"),
         link: wayland.ListElement(Grab, "link"), // wlr_xdg_shell::popup_grabs

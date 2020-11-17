@@ -5,7 +5,7 @@ const wlroots = @import("../wlroots.zig");
 pub const XDGPositioner = extern struct {
     extern fn wlr_positioner_invert_x(positioner: *XDGPositioner) void;
     extern fn wlr_positioner_invert_y(positioner: *XDGPositioner) void;
-    extern fn wlr_xdg_positioner_get_geometry(positioner: *XDGPositioner) Box;
+    extern fn wlr_xdg_positioner_get_geometry(positioner: *XDGPositioner) wlroots.Box;
 
     resource: [*c]wayland.Resource,
     anchor_rect: wlroots.Box,

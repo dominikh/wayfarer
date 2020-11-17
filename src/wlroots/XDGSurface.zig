@@ -8,7 +8,7 @@ pub const XDGSurface = extern struct {
     extern fn wlr_xdg_surface_from_popup_resource(resource: *wayland.Resource) ?*XDGSurface;
     extern fn wlr_xdg_surface_from_resource(resource: *wayland.Resource) ?*XDGSurface;
     extern fn wlr_xdg_surface_from_toplevel_resource(resource: *wayland.Resource) ?*XDGSurface;
-    extern fn wlr_xdg_surface_from_wlr_surface(surface: *Surface) ?*XDGSurface;
+    extern fn wlr_xdg_surface_from_wlr_surface(surface: *wlroots.Surface) ?*XDGSurface;
     extern fn wlr_xdg_surface_get_geometry(surface: *XDGSurface, box: *wlroots.Box) void;
     extern fn wlr_xdg_surface_ping(surface: *XDGSurface) void;
     extern fn wlr_xdg_surface_schedule_configure(surface: *XDGSurface) u32;

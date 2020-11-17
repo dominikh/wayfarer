@@ -7,30 +7,28 @@ pub const Pointer = extern struct {
     pub const Impl = opaque {};
 
     /// struct wlr_pointer_grab_interface
-    pub const struct_wlr_pointer_grab_interface = extern struct {
-        enter: ?fn ([*c]wlroots.Seat.struct_wlr_seat_pointer_grab, [*c]wlroots.Surface, f64, f64) callconv(.C) void,
-        clear_focus: ?fn ([*c]wlroots.Seat.struct_wlr_seat_pointer_grab) callconv(.C) void,
-        motion: ?fn ([*c]wlroots.Seat.struct_wlr_seat_pointer_grab, u32, f64, f64) callconv(.C) void,
-        button: ?fn ([*c]wlroots.Seat.struct_wlr_seat_pointer_grab, u32, u32, wlroots.enum_wlr_button_state) callconv(.C) u32,
-        axis: ?fn ([*c]wlroots.Seat.struct_wlr_seat_pointer_grab, u32, enum_wlr_axis_orientation, f64, i32, enum_wlr_axis_source) callconv(.C) void,
-        frame: ?fn ([*c]wlroots.Seat.struct_wlr_seat_pointer_grab) callconv(.C) void,
-        cancel: ?fn ([*c]wlroots.Seat.struct_wlr_seat_pointer_grab) callconv(.C) void,
+    pub const GrabInterface = extern struct {
+        enter: ?fn ([*c]wlroots.Seat.PointerGrab, [*c]wlroots.Surface, f64, f64) callconv(.C) void,
+        clear_focus: ?fn ([*c]wlroots.Seat.PointerGrab) callconv(.C) void,
+        motion: ?fn ([*c]wlroots.Seat.PointerGrab, u32, f64, f64) callconv(.C) void,
+        button: ?fn ([*c]wlroots.Seat.PointerGrab, u32, u32, wlroots.ButtonState) callconv(.C) u32,
+        axis: ?fn ([*c]wlroots.Seat.PointerGrab, u32, AxisOrientation, f64, i32, AxisSource) callconv(.C) void,
+        frame: ?fn ([*c]wlroots.Seat.PointerGrab) callconv(.C) void,
+        cancel: ?fn ([*c]wlroots.Seat.PointerGrab) callconv(.C) void,
     };
 
     /// enum wlr_axis_source
-    pub const enum_wlr_axis_source = extern enum(c_int) {
-        WLR_AXIS_SOURCE_WHEEL,
-        WLR_AXIS_SOURCE_FINGER,
-        WLR_AXIS_SOURCE_CONTINUOUS,
-        WLR_AXIS_SOURCE_WHEEL_TILT,
-        _,
+    pub const AxisSource = extern enum(c_int) {
+        wheel,
+        finger,
+        continuous,
+        wheel_tilt,
     };
 
     /// enum wlr_axis_orientation
-    pub const enum_wlr_axis_orientation = extern enum(c_int) {
-        WLR_AXIS_ORIENTATION_VERTICAL,
-        WLR_AXIS_ORIENTATION_HORIZONTAL,
-        _,
+    pub const AxisOrientation = extern enum(c_int) {
+        vertical,
+        horizontal,
     };
 
     pub const Events = struct {
@@ -57,15 +55,15 @@ pub const Pointer = extern struct {
             device: [*c]wlroots.InputDevice,
             time_msec: u32,
             button: u32,
-            state: wlroots.enum_wlr_button_state,
+            state: wlroots.ButtonState,
         };
 
         /// struct wlr_event_pointer_axis
         pub const Axis = extern struct {
             device: [*c]wlroots.InputDevice,
             time_msec: u32,
-            source: enum_wlr_axis_source,
-            orientation: enum_wlr_axis_orientation,
+            source: AxisSource,
+            orientation: AxisOrientation,
             delta: f64,
             delta_discrete: i32,
         };

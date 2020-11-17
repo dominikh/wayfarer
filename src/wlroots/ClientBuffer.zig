@@ -1,5 +1,6 @@
 const wayland = @import("../wayland.zig");
 const wlroots = @import("../wlroots.zig");
+const pixman = @import("../pixman.zig");
 
 /// struct wlr_client_buffer
 pub const ClientBuffer = extern struct {
@@ -13,7 +14,7 @@ pub const ClientBuffer = extern struct {
     resource_destroy: wayland.Listener(?*c_void),
     release: wayland.Listener(?*c_void),
 
-    pub fn applyDamage(buffer: *ClientBuffer, reousrce: *wayland.Resource, damage: *pixman.pixman_region32_t) !*ClientBuffer {
+    pub fn applyDamage(buffer: *ClientBuffer, resource: *wayland.Resource, damage: *pixman.pixman_region32_t) !*ClientBuffer {
         if (buffer.wlr_client_buffer_apply_damage(resource, damage)) |ret| {
             return ret;
         } else {

@@ -1,3 +1,4 @@
+const std = @import("std");
 const wayland = @import("../wayland.zig");
 usingnamespace @import("../pixman.zig");
 const wlroots = @import("../wlroots.zig");
@@ -21,7 +22,7 @@ pub const Output = extern struct {
     extern fn wlr_output_effective_resolution(output: *Output, width: *c_int, height: *c_int) void;
     extern fn wlr_output_attach_render(output: *Output, buffer_age: ?*c_int) bool;
     extern fn wlr_output_attach_buffer(output: *Output, buffer: *wlroots.Buffer) void;
-    extern fn wlr_output_preferred_read_format(output: *Output, fmt: *enum_wl_shm_format) bool;
+    extern fn wlr_output_preferred_read_format(output: *Output, fmt: *wayland.struct_wl_shm.enum_wl_shm_format) bool;
     extern fn wlr_output_set_damage(output: *Output, damage: *pixman_region32_t) void;
     extern fn wlr_output_test(output: *Output) bool;
     extern fn wlr_output_commit(output: *Output) bool;
@@ -29,14 +30,14 @@ pub const Output = extern struct {
     extern fn wlr_output_schedule_frame(output: *Output) void;
     extern fn wlr_output_get_gamma_size(output: *Output) usize;
     extern fn wlr_output_set_gamma(output: *Output, size: usize, r: *const u16, g: *const u16, b: *const u16) void;
-    extern fn wlr_output_export_dmabuf(output: *Output, attribs: *struct_wlr_dmabuf_attributes) bool;
+    extern fn wlr_output_export_dmabuf(output: *Output, attribs: *wlroots.DmabufAttributes) bool;
     extern fn wlr_output_from_resource(resource: *wayland.Resource) ?*Output;
     extern fn wlr_output_lock_attach_render(output: *Output, lock: bool) void;
     extern fn wlr_output_lock_software_cursors(output: *Output, lock: bool) void;
     extern fn wlr_output_render_software_cursors(output: *Output, damage: ?*pixman_region32_t) void;
     extern fn wlr_output_cursor_create(output: *Output) ?*OutputCursor;
     extern fn wlr_output_cursor_set_image(cursor: *OutputCursor, pixels: [*]const u8, stride: i32, width: u32, height: u32, hotspot_x: i32, hotspot_y: i32) bool;
-    extern fn wlr_output_cursor_set_surface(cursor: *OutputCursor, surface: *Surface, hotspot_x: i32, hotspot_y: i32) void;
+    extern fn wlr_output_cursor_set_surface(cursor: *OutputCursor, surface: *wlroots.Surface, hotspot_x: i32, hotspot_y: i32) void;
     extern fn wlr_output_cursor_move(cursor: *OutputCursor, x: f64, y: f64) bool;
     extern fn wlr_output_cursor_destroy(cursor: *OutputCursor) void;
     extern fn wlr_output_transform_invert(tr: wayland.Output.Transform) wayland.Output.Transform;
@@ -44,9 +45,8 @@ pub const Output = extern struct {
 
     /// enum wl_output_mode
     pub const enum_wl_output_mode = extern enum(c_int) {
-        WL_OUTPUT_MODE_CURRENT = 1,
-        WL_OUTPUT_MODE_PREFERRED = 2,
-        _,
+        current = 1,
+        preferred = 2,
     };
 
     /// struct wlr_output_cursor
@@ -72,14 +72,14 @@ pub const Output = extern struct {
 
     /// enum wlr_output_state_field
     pub const StateField = struct {
-        pub const WLR_OUTPUT_STATE_BUFFER: c_int = 1;
-        pub const WLR_OUTPUT_STATE_DAMAGE: c_int = 2;
-        pub const WLR_OUTPUT_STATE_MODE: c_int = 4;
-        pub const WLR_OUTPUT_STATE_ENABLED: c_int = 8;
-        pub const WLR_OUTPUT_STATE_SCALE: c_int = 16;
-        pub const WLR_OUTPUT_STATE_TRANSFORM: c_int = 32;
-        pub const WLR_OUTPUT_STATE_ADAPTIVE_SYNC_ENABLED: c_int = 64;
-        pub const WLR_OUTPUT_STATE_GAMMA_LUT: c_int = 128;
+        pub const buffer: c_int = 1;
+        pub const damage: c_int = 2;
+        pub const mode: c_int = 4;
+        pub const enabled: c_int = 8;
+        pub const scale: c_int = 16;
+        pub const transform: c_int = 32;
+        pub const adaptive_sync_enabled: c_int = 64;
+        pub const gamma_lut: c_int = 128;
     };
 
     /// struct wlr_output_event_damage
@@ -95,12 +95,11 @@ pub const Output = extern struct {
     };
 
     /// enum wlr_output_present_flag
-    pub const enum_wlr_output_present_flag = extern enum(c_int) {
-        WLR_OUTPUT_PRESENT_VSYNC = 1,
-        WLR_OUTPUT_PRESENT_HW_CLOCK = 2,
-        WLR_OUTPUT_PRESENT_HW_COMPLETION = 4,
-        WLR_OUTPUT_PRESENT_ZERO_COPY = 8,
-        _,
+    pub const enum_wlr_output_present_flag = struct {
+        pub const vsync: c_int = 1;
+        pub const hw_clock: c_int = 2;
+        pub const hw_completion: c_int = 4;
+        pub const zero_copy: c_int = 8;
     };
 
     /// struct wlr_output_event_present
@@ -116,12 +115,11 @@ pub const Output = extern struct {
     /// struct wlr_output_layout
     pub const Layout = extern struct {
         /// enum wlr_direction
-        pub const Direction = extern enum(c_int) {
-            Up = 1,
-            Down = 2,
-            Left = 4,
-            Right = 8,
-            _,
+        pub const Direction = struct {
+            pub const up: c_int = 1;
+            pub const down: c_int = 2;
+            pub const left: c_int = 4;
+            pub const right: c_int = 8;
         };
 
         extern fn wlr_output_layout_create() ?*Layout;
@@ -138,8 +136,8 @@ pub const Output = extern struct {
         extern fn wlr_output_layout_get_box(layout: *Layout, reference: ?*Output) *wlroots.Box;
         extern fn wlr_output_layout_add_auto(layout: *Layout, output: *Output) void;
         extern fn wlr_output_layout_get_center_output(layout: *Layout) ?*Output;
-        extern fn wlr_output_layout_adjacent_output(layout: *Layout, direction: Direction, reference: *Output, ref_lx: f64, ref_ly: f64) ?*Output;
-        extern fn wlr_output_layout_farthest_output(layout: *Layout, direction: Direction, reference: *Output, ref_lx: f64, ref_ly: f64) ?*Output;
+        extern fn wlr_output_layout_adjacent_output(layout: *Layout, direction: c_int, reference: *Output, ref_lx: f64, ref_ly: f64) ?*Output;
+        extern fn wlr_output_layout_farthest_output(layout: *Layout, direction: c_int, reference: *Output, ref_lx: f64, ref_ly: f64) ?*Output;
 
         /// struct_wlr_output_layout_state
         pub const struct_wlr_output_layout_state = opaque {};
@@ -204,23 +202,20 @@ pub const Output = extern struct {
 
     /// enum wlr_output_adaptive_sync_status
     pub const enum_wlr_output_adaptive_sync_status = extern enum(c_int) {
-        WLR_OUTPUT_ADAPTIVE_SYNC_DISABLED,
-        WLR_OUTPUT_ADAPTIVE_SYNC_ENABLED,
-        WLR_OUTPUT_ADAPTIVE_SYNC_UNKNOWN,
-        _,
+        disabled,
+        enabled,
+        unknown,
     };
 
     /// struct wlr_output_state
     pub const State = extern struct {
         pub const BufferType = extern enum(c_int) {
-            WLR_OUTPUT_STATE_BUFFER_RENDER,
-            WLR_OUTPUT_STATE_BUFFER_SCANOUT,
-            _,
+            render,
+            scanout,
         };
         pub const ModeType = extern enum(c_int) {
-            WLR_OUTPUT_STATE_MODE_FIXED,
-            WLR_OUTPUT_STATE_MODE_CUSTOM,
-            _,
+            fixed,
+            custom,
         };
 
         committed: u32,

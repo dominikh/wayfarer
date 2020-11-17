@@ -34,7 +34,7 @@ pub const Subsurface = extern struct {
     data: ?*c_void,
 
     pub fn init(surface: *wlroots.Surface, parent: *wlroots.Surface, version: u32, id: u32, resource_list: ?*wayland.List(wayland.Resource, "link")) !*Subsurface {
-        return surface.wlr_subsurface_create(parent, version, id, resource_list) orelse error.Failure;
+        return wlr_subsurface_create(surface, parent, version, id, resource_list) orelse error.Failure;
     }
 
     pub const fromWlrSurface = wlr_subsurface_from_wlr_surface;

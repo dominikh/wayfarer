@@ -83,31 +83,31 @@ pub const XDGToplevel = extern struct {
         set_app_id: wayland.Signal(?*c_void),
     },
 
-    pub fn SendClose(surface: *wlroots.XDGToplevel) void {
-        surface.base.wlr_xdg_toplevel_send_close();
+    pub fn sendClose(surface: *wlroots.XDGToplevel) void {
+        wlr_xdg_toplevel_send_close(surface.base);
     }
 
-    pub fn SetActivated(surface: *wlroots.XDGToplevel, activated: bool) u32 {
+    pub fn setActivated(surface: *wlroots.XDGToplevel, activated: bool) u32 {
         return wlr_xdg_toplevel_set_activated(surface.base, activated);
     }
 
-    pub fn SetFullscreen(surface: *wlroots.XDGToplevel, fullscreen: bool) u32 {
+    pub fn setFullscreen(surface: *wlroots.XDGToplevel, fullscreen: bool) u32 {
         return wlr_xdg_toplevel_set_fullscreen(surface.base, fullscreen);
     }
 
-    pub fn SetMaximized(surface: *wlroots.XDGToplevel, maximized: bool) u32 {
+    pub fn setMaximized(surface: *wlroots.XDGToplevel, maximized: bool) u32 {
         return wlr_xdg_toplevel_set_maximized(surface.base, maximized);
     }
 
-    pub fn SetResizing(surface: *wlroots.XDGToplevel, resizing: bool) u32 {
+    pub fn setResizing(surface: *wlroots.XDGToplevel, resizing: bool) u32 {
         return wlr_xdg_toplevel_set_resizing(surface.base, resizing);
     }
 
-    pub fn SetSize(surface: *wlroots.XDGToplevel, width: u32, height: u32) u32 {
+    pub fn setSize(surface: *wlroots.XDGToplevel, width: u32, height: u32) u32 {
         return wlr_xdg_toplevel_set_size(surface.base, width, height);
     }
 
-    pub fn SetTiled(surface: *wlroots.XDGToplevel, tiled_edges: u32) u32 {
-        return wlr_xdg_toplevel_set_tiled(surface.base, tiled_edge);
+    pub fn setTiled(surface: *wlroots.XDGToplevel, tiled_edges: u32) u32 {
+        return wlr_xdg_toplevel_set_tiled(surface.base, tiled_edges);
     }
 };

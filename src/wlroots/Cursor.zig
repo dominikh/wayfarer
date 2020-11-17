@@ -16,9 +16,9 @@ pub const Cursor = extern struct {
     extern fn wlr_cursor_detach_input_device(cur: *Cursor, dev: *wlroots.InputDevice) void;
     extern fn wlr_cursor_attach_output_layout(cur: *Cursor, l: *wlroots.Output.Layout) void;
     extern fn wlr_cursor_map_to_output(cur: *Cursor, output: *wlroots.Output) void;
-    extern fn wlr_cursor_map_input_to_output(cur: *Cursor, dev: *wlroots.InputDevice, output: *Output) void;
-    extern fn wlr_cursor_map_to_region(cur: *Cursor, box: *Box) void;
-    extern fn wlr_cursor_map_input_to_region(cur: *Cursor, dev: *wlroots.InputDevice, box: *Box) void;
+    extern fn wlr_cursor_map_input_to_output(cur: *Cursor, dev: *wlroots.InputDevice, output: *wlroots.Output) void;
+    extern fn wlr_cursor_map_to_region(cur: *Cursor, box: *wlroots.Box) void;
+    extern fn wlr_cursor_map_input_to_region(cur: *Cursor, dev: *wlroots.InputDevice, box: *wlroots.Box) void;
 
     // struct wlr_cursor_state
     pub const State = opaque {};
@@ -54,6 +54,7 @@ pub const Cursor = extern struct {
         return wlr_cursor_create() orelse error.Failure;
     }
 
+    // TODO take in Box as a value
     pub const deinit = wlr_cursor_destroy;
     pub const warp = wlr_cursor_warp;
     pub const absoluteToLayoutCoords = wlr_cursor_absolute_to_layout_coords;

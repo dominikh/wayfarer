@@ -1,86 +1,83 @@
 const wayland = @import("../wayland.zig");
 const wlroots = @import("../wlroots.zig");
-const Keyboard = wlroots.Keyboard;
-const Surface = wlroots.Surface;
 const std = @import("std");
-const Pointer = wlroots.Pointer;
 
 /// struct wlr_seat
 pub const Seat = extern struct {
     extern fn wlr_seat_client_validate_event_serial(client: *Client, serial: u32) bool;
     extern fn wlr_seat_create(display: *wayland.Display, name: [*:0]const u8) ?*Seat;
     extern fn wlr_seat_destroy(wlr_seat: *Seat) void;
-    extern fn wlr_seat_get_keyboard(seat: *Seat) ?*Keyboard;
+    extern fn wlr_seat_get_keyboard(seat: *Seat) ?*wlroots.Keyboard;
     extern fn wlr_seat_keyboard_clear_focus(wlr_seat: *Seat) void;
     extern fn wlr_seat_keyboard_end_grab(wlr_seat: *Seat) void;
-    extern fn wlr_seat_keyboard_enter(seat: *Seat, surface: *Surface, keycodes: [*]u32, num_keycodes: usize, modifiers: *Keyboard.Modifiers) void;
+    extern fn wlr_seat_keyboard_enter(seat: *Seat, surface: *wlroots.Surface, keycodes: [*]u32, num_keycodes: usize, modifiers: *wlroots.Keyboard.Modifiers) void;
     extern fn wlr_seat_keyboard_has_grab(seat: *Seat) bool;
     extern fn wlr_seat_keyboard_notify_clear_focus(wlr_seat: *Seat) void;
-    extern fn wlr_seat_keyboard_notify_enter(seat: *Seat, surface: *Surface, keycodes: [*]u32, num_keycodes: usize, modifiers: *Keyboard.Modifiers) void;
+    extern fn wlr_seat_keyboard_notify_enter(seat: *Seat, surface: *wlroots.Surface, keycodes: [*]u32, num_keycodes: usize, modifiers: *wlroots.Keyboard.Modifiers) void;
     extern fn wlr_seat_keyboard_notify_key(seat: *Seat, time_msec: u32, key: u32, state: u32) void;
-    extern fn wlr_seat_keyboard_notify_modifiers(seat: *Seat, modifiers: *Keyboard.Modifiers) void;
+    extern fn wlr_seat_keyboard_notify_modifiers(seat: *Seat, modifiers: *wlroots.Keyboard.Modifiers) void;
     extern fn wlr_seat_keyboard_send_key(seat: *Seat, time_msec: u32, key: u32, state: u32) void;
-    extern fn wlr_seat_keyboard_send_modifiers(seat: *Seat, modifiers: *Keyboard.Modifiers) void;
-    extern fn wlr_seat_keyboard_start_grab(wlr_seat: *Seat, grab: *struct_wlr_seat_keyboard_grab) void;
+    extern fn wlr_seat_keyboard_send_modifiers(seat: *Seat, modifiers: *wlroots.Keyboard.Modifiers) void;
+    extern fn wlr_seat_keyboard_start_grab(wlr_seat: *Seat, grab: *KeyboardGrab) void;
     extern fn wlr_seat_pointer_clear_focus(wlr_seat: *Seat) void;
     extern fn wlr_seat_pointer_end_grab(wlr_seat: *Seat) void;
-    extern fn wlr_seat_pointer_enter(wlr_seat: *Seat, surface: *Surface, sx: f64, sy: f64) void;
+    extern fn wlr_seat_pointer_enter(wlr_seat: *Seat, surface: *wlroots.Surface, sx: f64, sy: f64) void;
     extern fn wlr_seat_pointer_has_grab(seat: *Seat) bool;
-    extern fn wlr_seat_pointer_notify_axis(wlr_seat: *Seat, time_msec: u32, orientation: Pointer.enum_wlr_axis_orientation, value: f64, value_discrete: i32, source: Pointer.enum_wlr_axis_source) void;
-    extern fn wlr_seat_pointer_notify_button(wlr_seat: *Seat, time_msec: u32, button: u32, state: wlroots.enum_wlr_button_state) u32;
+    extern fn wlr_seat_pointer_notify_axis(wlr_seat: *Seat, time_msec: u32, orientation: wlroots.Pointer.AxisOrientation, value: f64, value_discrete: i32, source: wlroots.Pointer.AxisSource) void;
+    extern fn wlr_seat_pointer_notify_button(wlr_seat: *Seat, time_msec: u32, button: u32, state: wlroots.ButtonState) u32;
     extern fn wlr_seat_pointer_notify_clear_focus(wlr_seat: *Seat) void;
-    extern fn wlr_seat_pointer_notify_enter(wlr_seat: *Seat, surface: *Surface, sx: f64, sy: f64) void;
+    extern fn wlr_seat_pointer_notify_enter(wlr_seat: *Seat, surface: *wlroots.Surface, sx: f64, sy: f64) void;
     extern fn wlr_seat_pointer_notify_frame(wlr_seat: *Seat) void;
     extern fn wlr_seat_pointer_notify_motion(wlr_seat: *Seat, time_msec: u32, sx: f64, sy: f64) void;
-    extern fn wlr_seat_pointer_send_axis(wlr_seat: *Seat, time_msec: u32, orientation: Pointer.enum_wlr_axis_orientation, value: f64, value_discrete: i32, source: Pointer.enum_wlr_axis_source) void;
-    extern fn wlr_seat_pointer_send_button(wlr_seat: *Seat, time_msec: u32, button: u32, state: enum_wlr_button_state) u32;
+    extern fn wlr_seat_pointer_send_axis(wlr_seat: *Seat, time_msec: u32, orientation: wlroots.Pointer.AxisOrientation, value: f64, value_discrete: i32, source: wlroots.Pointer.AxisSource) void;
+    extern fn wlr_seat_pointer_send_button(wlr_seat: *Seat, time_msec: u32, button: u32, state: wlroots.ButtonState) u32;
     extern fn wlr_seat_pointer_send_frame(wlr_seat: *Seat) void;
     extern fn wlr_seat_pointer_send_motion(wlr_seat: *Seat, time_msec: u32, sx: f64, sy: f64) void;
-    extern fn wlr_seat_pointer_start_grab(wlr_seat: *Seat, grab: *struct_wlr_seat_pointer_grab) void;
-    extern fn wlr_seat_pointer_surface_has_focus(wlr_seat: *Seat, surface: *Surface) bool;
+    extern fn wlr_seat_pointer_start_grab(wlr_seat: *Seat, grab: *PointerGrab) void;
+    extern fn wlr_seat_pointer_surface_has_focus(wlr_seat: *Seat, surface: *wlroots.Surface) bool;
     extern fn wlr_seat_pointer_warp(wlr_seat: *Seat, sx: f64, sy: f64) void;
-    extern fn wlr_seat_request_set_selection(seat: *Seat, client: *Client, source: *struct_wlr_data_source, serial: u32) void;
-    extern fn wlr_seat_request_start_drag(seat: *Seat, drag: *struct_wlr_drag, origin: *Surface, serial: u32) void;
+    extern fn wlr_seat_request_set_selection(seat: *Seat, client: *Client, source: *wlroots.DataSource, serial: u32) void;
+    extern fn wlr_seat_request_start_drag(seat: *Seat, drag: *wlroots.Drag, origin: *wlroots.Surface, serial: u32) void;
     extern fn wlr_seat_set_capabilities(wlr_seat: *Seat, capabilities: u32) void;
     extern fn wlr_seat_set_keyboard(seat: *Seat, dev: *wlroots.InputDevice) void;
     extern fn wlr_seat_set_name(wlr_seat: *Seat, name: [*:0]const u8) void;
-    extern fn wlr_seat_set_selection(seat: *Seat, source: *struct_wlr_data_source, serial: u32) void;
-    extern fn wlr_seat_start_drag(seat: *Seat, drag: *struct_wlr_drag, serial: u32) void;
-    extern fn wlr_seat_start_pointer_drag(seat: *Seat, drag: *struct_wlr_drag, serial: u32) void;
-    extern fn wlr_seat_start_touch_drag(seat: *Seat, drag: *struct_wlr_drag, serial: u32, point: *struct_wlr_touch_point) void;
+    extern fn wlr_seat_set_selection(seat: *Seat, source: *wlroots.DataSource, serial: u32) void;
+    extern fn wlr_seat_start_drag(seat: *Seat, drag: *wlroots.Drag, serial: u32) void;
+    extern fn wlr_seat_start_pointer_drag(seat: *Seat, drag: *wlroots.Drag, serial: u32) void;
+    extern fn wlr_seat_start_touch_drag(seat: *Seat, drag: *wlroots.Drag, serial: u32, point: *struct_wlr_touch_point) void;
     extern fn wlr_seat_touch_end_grab(wlr_seat: *Seat) void;
     extern fn wlr_seat_touch_get_point(seat: *Seat, touch_id: i32) ?*struct_wlr_touch_point;
     extern fn wlr_seat_touch_has_grab(seat: *Seat) bool;
-    extern fn wlr_seat_touch_notify_down(seat: *Seat, surface: *Surface, time_msec: u32, touch_id: i32, sx: f64, sy: f64) u32;
+    extern fn wlr_seat_touch_notify_down(seat: *Seat, surface: *wlroots.Surface, time_msec: u32, touch_id: i32, sx: f64, sy: f64) u32;
     extern fn wlr_seat_touch_notify_motion(seat: *Seat, time_msec: u32, touch_id: i32, sx: f64, sy: f64) void;
     extern fn wlr_seat_touch_notify_up(seat: *Seat, time_msec: u32, touch_id: i32) void;
     extern fn wlr_seat_touch_num_points(seat: *Seat) c_int;
     extern fn wlr_seat_touch_point_clear_focus(seat: *Seat, time_msec: u32, touch_id: i32) void;
-    extern fn wlr_seat_touch_point_focus(seat: *Seat, surface: *Surface, time_msec: u32, touch_id: i32, sx: f64, sy: f64) void;
-    extern fn wlr_seat_touch_send_down(seat: *Seat, surface: *Surface, time_msec: u32, touch_id: i32, sx: f64, sy: f64) u32;
+    extern fn wlr_seat_touch_point_focus(seat: *Seat, surface: *wlroots.Surface, time_msec: u32, touch_id: i32, sx: f64, sy: f64) void;
+    extern fn wlr_seat_touch_send_down(seat: *Seat, surface: *wlroots.Surface, time_msec: u32, touch_id: i32, sx: f64, sy: f64) u32;
     extern fn wlr_seat_touch_send_motion(seat: *Seat, time_msec: u32, touch_id: i32, sx: f64, sy: f64) void;
     extern fn wlr_seat_touch_send_up(seat: *Seat, time_msec: u32, touch_id: i32) void;
-    extern fn wlr_seat_touch_start_grab(wlr_seat: *Seat, grab: *struct_wlr_seat_touch_grab) void;
+    extern fn wlr_seat_touch_start_grab(wlr_seat: *Seat, grab: *TouchGrab) void;
     extern fn wlr_seat_validate_grab_serial(seat: *Seat, serial: u32) bool;
-    extern fn wlr_seat_validate_pointer_grab_serial(seat: *Seat, origin: *Surface, serial: u32) bool;
-    extern fn wlr_seat_validate_touch_grab_serial(seat: *Seat, origin: *Surface, serial: u32, point_ptr: ?**struct_wlr_touch_point) bool;
+    extern fn wlr_seat_validate_pointer_grab_serial(seat: *Seat, origin: *wlroots.Surface, serial: u32) bool;
+    extern fn wlr_seat_validate_touch_grab_serial(seat: *Seat, origin: *wlroots.Surface, serial: u32, point_ptr: ?**struct_wlr_touch_point) bool;
 
     /// struct wlr_seat_pointer_grab
-    pub const struct_wlr_seat_pointer_grab = extern struct {
-        interface: [*c]const wlroots.Pointer.struct_wlr_pointer_grab_interface,
+    pub const PointerGrab = extern struct {
+        interface: [*c]const wlroots.Pointer.GrabInterface,
         seat: [*c]Seat,
         data: ?*c_void,
     };
 
     /// struct wlr_seat_keyboard_grab
-    pub const struct_wlr_seat_keyboard_grab = extern struct {
+    pub const KeyboardGrab = extern struct {
         /// struct wlr_keyboard_grab_interface
         pub const Interface = extern struct {
-            enter: ?fn ([*c]struct_wlr_seat_keyboard_grab, [*c]Surface, [*c]u32, usize, [*c]Keyboard.Modifiers) callconv(.C) void,
-            clear_focus: ?fn ([*c]struct_wlr_seat_keyboard_grab) callconv(.C) void,
-            key: ?fn ([*c]struct_wlr_seat_keyboard_grab, u32, u32, u32) callconv(.C) void,
-            modifiers: ?fn ([*c]struct_wlr_seat_keyboard_grab, [*c]Keyboard.Modifiers) callconv(.C) void,
-            cancel: ?fn ([*c]struct_wlr_seat_keyboard_grab) callconv(.C) void,
+            enter: ?fn ([*c]KeyboardGrab, [*c]wlroots.Surface, [*c]u32, usize, [*c]wlroots.Keyboard.Modifiers) callconv(.C) void,
+            clear_focus: ?fn ([*c]KeyboardGrab) callconv(.C) void,
+            key: ?fn ([*c]KeyboardGrab, u32, u32, u32) callconv(.C) void,
+            modifiers: ?fn ([*c]KeyboardGrab, [*c]wlroots.Keyboard.Modifiers) callconv(.C) void,
+            cancel: ?fn ([*c]KeyboardGrab) callconv(.C) void,
         };
 
         interface: [*c]const Interface,
@@ -89,13 +86,13 @@ pub const Seat = extern struct {
     };
 
     // struct wlr_seat_touch_grab
-    pub const struct_wlr_seat_touch_grab = extern struct {
+    pub const TouchGrab = extern struct {
         pub const struct_wlr_touch_grab_interface = extern struct {
-            down: ?fn ([*c]struct_wlr_seat_touch_grab, u32, [*c]struct_wlr_touch_point) callconv(.C) u32,
-            up: ?fn ([*c]struct_wlr_seat_touch_grab, u32, [*c]struct_wlr_touch_point) callconv(.C) void,
-            motion: ?fn ([*c]struct_wlr_seat_touch_grab, u32, [*c]struct_wlr_touch_point) callconv(.C) void,
-            enter: ?fn ([*c]struct_wlr_seat_touch_grab, u32, [*c]struct_wlr_touch_point) callconv(.C) void,
-            cancel: ?fn ([*c]struct_wlr_seat_touch_grab) callconv(.C) void,
+            down: ?fn ([*c]TouchGrab, u32, [*c]struct_wlr_touch_point) callconv(.C) u32,
+            up: ?fn ([*c]TouchGrab, u32, [*c]struct_wlr_touch_point) callconv(.C) void,
+            motion: ?fn ([*c]TouchGrab, u32, [*c]struct_wlr_touch_point) callconv(.C) void,
+            enter: ?fn ([*c]TouchGrab, u32, [*c]struct_wlr_touch_point) callconv(.C) void,
+            cancel: ?fn ([*c]TouchGrab) callconv(.C) void,
         };
 
         interface: [*c]const struct_wlr_touch_grab_interface,
@@ -105,6 +102,7 @@ pub const Seat = extern struct {
 
     /// struct wlr_seat_client
     pub const Client = extern struct {
+        // TODO make available
         extern fn wlr_seat_client_validate_event_serial(client: *Client, serial: u32) bool;
         extern fn wlr_seat_client_for_wl_client(wlr_seat: *Seat, wl_client: ?*wayland.Client) [*c]struct_wlr_seat_client;
         extern fn wlr_seat_client_from_pointer_resource(resource: *wayland.Resource) [*c]struct_wlr_seat_client;
@@ -178,8 +176,8 @@ pub const Seat = extern struct {
         focused_surface: [*c]wlroots.Surface,
         sx: f64,
         sy: f64,
-        grab: [*c]struct_wlr_seat_pointer_grab,
-        default_grab: [*c]struct_wlr_seat_pointer_grab,
+        grab: [*c]PointerGrab,
+        default_grab: [*c]PointerGrab,
         buttons: [16]u32,
         button_count: usize,
         grab_button: u32,
@@ -194,15 +192,15 @@ pub const Seat = extern struct {
     /// struct wlr_seat_keyboard_state
     pub const struct_wlr_seat_keyboard_state = extern struct {
         seat: [*c]Seat,
-        keyboard: [*c]Keyboard,
+        keyboard: [*c]wlroots.Keyboard,
         focused_client: [*c]Client,
-        focused_surface: [*c]Surface,
+        focused_surface: [*c]wlroots.Surface,
         keyboard_destroy: wayland.Listener(?*c_void),
         keyboard_keymap: wayland.Listener(?*c_void),
         keyboard_repeat_info: wayland.Listener(?*c_void),
         surface_destroy: wayland.Listener(?*c_void),
-        grab: [*c]struct_wlr_seat_keyboard_grab,
-        default_grab: [*c]struct_wlr_seat_keyboard_grab,
+        grab: [*c]KeyboardGrab,
+        default_grab: [*c]KeyboardGrab,
         events: extern struct {
             focus_change: wayland.Signal(*Events.KeyboardFocusChange),
         },
@@ -214,8 +212,8 @@ pub const Seat = extern struct {
         touch_points: wayland.List(struct_wlr_touch_point, "link"),
         grab_serial: u32,
         grab_id: u32,
-        grab: [*c]struct_wlr_seat_touch_grab,
-        default_grab: [*c]struct_wlr_seat_touch_grab,
+        grab: [*c]TouchGrab,
+        default_grab: [*c]TouchGrab,
     };
 
     /// struct wlr_touch_point
@@ -281,11 +279,11 @@ pub const Seat = extern struct {
         return wlr_seat_create(display, name) orelse error.Failure;
     }
 
-    pub fn keyboardEnter(seat: *Seat, surface: *Surface, keycodes: []u32, modifiers: *Keyboard.Modifiers) void {
-        wlr_seat_keyboard_enter(seat, surface, keycodes, keycodes.len, modifiers);
+    pub fn keyboardEnter(seat: *Seat, surface: *wlroots.Surface, keycodes: []u32, modifiers: *wlroots.Keyboard.Modifiers) void {
+        wlr_seat_keyboard_enter(seat, surface, keycodes.ptr, keycodes.len, modifiers);
     }
 
-    pub fn keyboardNotifyEnter(seat: *Seat, surface: *Surface, keycodes: []u32, modifiers: *Keyboard.Modifiers) void {
+    pub fn keyboardNotifyEnter(seat: *Seat, surface: *wlroots.Surface, keycodes: []u32, modifiers: *wlroots.Keyboard.Modifiers) void {
         wlr_seat_keyboard_notify_enter(seat, surface, keycodes.ptr, keycodes.len, modifiers);
     }
 

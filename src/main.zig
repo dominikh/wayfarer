@@ -345,24 +345,21 @@ const Server = struct {
             .Move, .Resize => {
                 if (event.button == libinput.BTN_LEFT) {
                     switch (event.state) {
-                        .Released => {
+                        .released => {
                             switch (server.cursor_mode) {
                                 .Move => |value| {
-                                    _ = value.grabbed_view.xdg_toplevel.SetResizing(false);
+                                    _ = value.grabbed_view.xdg_toplevel.setResizing(false);
                                 },
                                 .Resize => |view| {
-                                    _ = view.xdg_toplevel.SetResizing(false);
+                                    _ = view.xdg_toplevel.setResizing(false);
                                 },
                                 else => {},
                             }
 
                             server.cursor_mode = .Normal;
                         },
-                        .Pressed => {
+                        .pressed => {
                             // XXX throw an error, because this should be impossible
-                        },
-                        else => {
-                            // Oh, if only C enums were exhaustive
                         },
                     }
                 }
@@ -470,7 +467,7 @@ const Server = struct {
                     new_size.y = min_height;
                 }
 
-                _ = view.xdg_toplevel.SetSize(
+                _ = view.xdg_toplevel.setSize(
                     @floatToInt(u32, @round(new_size.x)),
                     @floatToInt(u32, @round(new_size.y)),
                 );
@@ -600,10 +597,10 @@ const Seat = struct {
     fn pointerNotifyAxis(
         seat: *const Seat,
         time_msec: u32,
-        orientation: wlroots.Pointer.enum_wlr_axis_orientation,
+        orientation: wlroots.Pointer.AxisOrientation,
         value: f64,
         value_discrete: i32,
-        source: wlroots.Pointer.enum_wlr_axis_source,
+        source: wlroots.Pointer.AxisSource,
     ) void {
         seat.seat.pointerNotifyAxis(time_msec, orientation, value, value_discrete, source);
     }
@@ -854,7 +851,7 @@ const View = struct {
         const view = @fieldParentPtr(View, "map", listener);
 
         // XXX should only the focussed client be active?
-        _ = surface.unnamed_0.toplevel.SetActivated(true);
+        _ = surface.unnamed_0.toplevel.setActivated(true);
     }
 
     fn xdgSurfaceUnmap(listener: *wl.Listener(*wlroots.XDGSurface), surface: *wlroots.XDGSurface) void {
@@ -905,7 +902,7 @@ const View = struct {
         const server = view.server;
 
         // XXX clear focus
-        _ = view.xdg_toplevel.SetResizing(true);
+        _ = view.xdg_toplevel.setResizing(true);
 
         server.cursor_mode = .{
             .Resize = view,
@@ -927,7 +924,7 @@ const View = struct {
         if (view.xdg_toplevel.client_pending.maximized) {
             if (view.xdg_toplevel.current.maximized) {
                 // TODO(dh): make sure wlroots doesn't swallow this event. see https://github.com/swaywm/wlroots/issues/2330
-                _ = surface.unnamed_0.toplevel.SetMaximized(true);
+                _ = surface.unnamed_0.toplevel.setMaximized(true);
                 return;
             }
 
@@ -944,18 +941,18 @@ const View = struct {
             };
 
             const extents = view.server.output_layout.getBox(output).*;
-            _ = view.xdg_toplevel.SetMaximized(true);
-            _ = view.xdg_toplevel.SetSize(@intCast(u32, extents.width), @intCast(u32, extents.height));
+            _ = view.xdg_toplevel.setMaximized(true);
+            _ = view.xdg_toplevel.setSize(@intCast(u32, extents.width), @intCast(u32, extents.height));
         } else {
             if (!view.xdg_toplevel.current.maximized) {
                 // TODO(dh): make sure wlroots doesn't swallow this event. see https://github.com/swaywm/wlroots/issues/2330
-                _ = view.xdg_toplevel.SetMaximized(false);
+                _ = view.xdg_toplevel.setMaximized(false);
                 return;
             }
 
-            _ = view.xdg_toplevel.SetMaximized(false);
+            _ = view.xdg_toplevel.setMaximized(false);
             // TODO(dh): what happens if the client changed its geometry in the meantime? our old width and height will no longer be correct.
-            _ = view.xdg_toplevel.SetSize(@floatToInt(u32, @round(view.state_before_maximize.width)), @floatToInt(u32, @round(view.state_before_maximize.height)));
+            _ = view.xdg_toplevel.setSize(@floatToInt(u32, @round(view.state_before_maximize.width)), @floatToInt(u32, @round(view.state_before_maximize.height)));
         }
     }
 

@@ -36,12 +36,13 @@ pub const XCursor = extern struct {
         }
 
         pub const deinit = wlr_xcursor_manager_destroy;
-        pub const getXcursor = wlr_xcursor_manager_get_xcursor;
+        pub const getXCursor = wlr_xcursor_manager_get_xcursor;
         pub const setCursorImage = wlr_xcursor_manager_set_cursor_image;
     };
 
     /// struct wlr_xcursor_theme
     pub const Theme = extern struct {
+        // TODO
         pub extern fn wlr_xcursor_theme_destroy(theme: [*c]Theme) void;
         pub extern fn wlr_xcursor_theme_get_cursor(theme: [*c]Theme, name: [*:0]const u8) [*c]XCursor;
         pub extern fn wlr_xcursor_theme_load(name: [*:0]const u8, size: c_int) [*c]Theme;

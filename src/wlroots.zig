@@ -1,4 +1,9 @@
 const wayland = @import("wayland.zig");
+const c = @cImport({
+    @cInclude("time.h");
+});
+
+pub const clockid_t = c.clockid_t;
 
 pub const Keyboard = @import("wlroots/Keyboard.zig").Keyboard;
 pub const Pointer = @import("wlroots/Pointer.zig").Pointer;
@@ -38,19 +43,16 @@ pub extern fn wlr_resource_is_buffer(resource: [*c]wayland.Resource) bool;
 
 /// enum wlr_log_importance
 pub const enum_wlr_log_importance = extern enum(c_int) {
-    WLR_SILENT = 0,
-    WLR_ERROR = 1,
-    WLR_INFO = 2,
-    WLR_DEBUG = 3,
-    WLR_LOG_IMPORTANCE_LAST = 4,
-    _,
+    silent = 0,
+    @"error" = 1,
+    info = 2,
+    debug = 3,
 };
 
 /// enum wlr_button_state
-pub const enum_wlr_button_state = extern enum(c_int) {
-    Released,
-    Pressed,
-    _,
+pub const ButtonState = extern enum(c_int) {
+    released,
+    pressed,
 };
 
 /// struct wlr_serial_range

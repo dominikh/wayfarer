@@ -8,7 +8,7 @@ pub const Backend = extern struct {
     extern fn wlr_backend_destroy(backend: *Backend) void;
     extern fn wlr_backend_get_renderer(backend: *Backend) *wlroots.Renderer;
     extern fn wlr_backend_get_session(backend: *Backend) ?*wlroots.Session;
-    extern fn wlr_backend_get_presentation_clock(backend: *Backend) clockid_t;
+    extern fn wlr_backend_get_presentation_clock(backend: *Backend) wlroots.clockid_t;
     extern fn wlr_multi_backend_create(display: *wayland.Display) ?*Backend;
     extern fn wlr_multi_backend_add(multi: *Backend, backend: *Backend) bool;
     extern fn wlr_multi_backend_remove(multi: *Backend, backend: *Backend) void;

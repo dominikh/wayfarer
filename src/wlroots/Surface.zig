@@ -13,15 +13,15 @@ pub const Surface = extern struct {
     extern fn wlr_surface_get_root_surface(surface: *Surface) *Surface;
     extern fn wlr_surface_point_accepts_input(surface: *Surface, sx: f64, sy: f64) bool;
     extern fn wlr_surface_surface_at(surface: *Surface, sx: f64, sy: f64, sub_x: *f64, sub_y: *f64) ?*Surface;
-    extern fn wlr_surface_send_enter(surface: *Surface, output: *Output) void;
-    extern fn wlr_surface_send_leave(surface: *Surface, output: *Output) void;
+    extern fn wlr_surface_send_enter(surface: *Surface, output: *wlroots.Output) void;
+    extern fn wlr_surface_send_leave(surface: *Surface, output: *wlroots.Output) void;
     extern fn wlr_surface_send_frame_done(surface: *Surface, when: *const std.os.timespec) void;
     extern fn wlr_surface_get_extends(surface: *Surface, box: *wlroots.Box) void;
     extern fn wlr_surface_from_resource(resource: *wayland.Resource) ?*Surface;
     extern fn wlr_surface_for_each_surface(surface: *Surface, iterator: IteratorFunc, user_data: ?*c_void) void;
     extern fn wlr_surface_get_effective_damage(surface: *Surface, damage: *pixman_region32_t) void;
-    extern fn wlr_surface_get_buffer_source_box(surface: *Surface, box: *Fwlroots.Box) void;
-    extern fn wlr_surface_accepts_touch(wlr_seat: *Seat, surface: *Surface) bool;
+    extern fn wlr_surface_get_buffer_source_box(surface: *Surface, box: *wlroots.FBox) void;
+    extern fn wlr_surface_accepts_touch(wlr_seat: *wlroots.Seat, surface: *Surface) bool;
     extern fn wlr_surface_is_xdg_surface(surface: *Surface) bool;
 
     /// enum wlr_surface_state_field
@@ -35,7 +35,6 @@ pub const Surface = extern struct {
         pub const WLR_SURFACE_STATE_SCALE: c_int = 64;
         pub const WLR_SURFACE_STATE_FRAME_CALLBACK_LIST: c_int = 128;
         pub const WLR_SURFACE_STATE_VIEWPORT: c_int = 256;
-        _,
     };
 
     /// wlr_surface_iterator_func_t
