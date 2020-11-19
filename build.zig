@@ -1,28 +1,49 @@
 const std = @import("std");
 const Builder = std.build.Builder;
+const Pkg = std.build.Pkg;
+
+const ScanProtocolsStep = @import("deps/zig-wayland/build.zig").ScanProtocolsStep;
 
 pub fn build(b: *Builder) void {
-    // Standard target options allows the person running `zig build` to choose
-    // what target to build for. Here we do not override the defaults, which
-    // means any target is allowed, and the default is native. Other options
-    // for restricting supported target set are available.
     const target = b.standardTargetOptions(.{});
-
-    // Standard release options allow the person running `zig build` to select
-    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
     const mode = b.standardReleaseOptions();
-
     const tracy = b.option([]const u8, "tracy", "Enable Tracy integration. Supply path to Tracy source");
+
+    const scanner = ScanProtocolsStep.create(b, "deps/zig-wayland");
+    scanner.addSystemProtocol("stable/xdg-shell/xdg-shell.xml");
+
+    const wayland = scanner.getPkg();
+    const xkbcommon = Pkg{
+        .name = "xkbcommon",
+        .path = "deps/zig-xkbcommon/src/xkbcommon.zig",
+    };
+    const pixman = Pkg{
+        .name = "pixman",
+        .path = "deps/zig-pixman/pixman.zig",
+    };
+    const wlroots = Pkg{
+        .name = "wlroots",
+        .path = "deps/zig-wlroots/src/wlroots.zig",
+        .dependencies = &[_]Pkg{ wayland, xkbcommon, pixman },
+    };
 
     const exe = b.addExecutable("wayfarer", "src/main.zig");
     exe.setTarget(target);
     exe.setBuildMode(mode);
-    exe.addIncludeDir("src/include/");
-    exe.linkSystemLibrary("c");
+    exe.linkLibC();
+
+    exe.addPackage(wayland);
     exe.linkSystemLibrary("wayland-server");
-    exe.linkSystemLibrary("wlroots");
-    exe.linkSystemLibrary("xcb");
+    exe.step.dependOn(&scanner.step);
+    scanner.addCSource(exe);
+
+    exe.addPackage(xkbcommon);
     exe.linkSystemLibrary("xkbcommon");
+
+    exe.addPackage(wlroots);
+    exe.linkSystemLibrary("wlroots");
+    exe.linkSystemLibrary("pixman-1");
+
     if (tracy) |tracy_path| {
         const client_cpp = std.fs.path.join(
             b.allocator,
@@ -31,7 +52,6 @@ pub fn build(b: *Builder) void {
         exe.addIncludeDir(tracy_path);
         exe.addCSourceFile(client_cpp, &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" });
         exe.linkSystemLibraryName("c++");
-        exe.linkLibC();
     }
     exe.addBuildOption(bool, "enable_tracy", tracy != null);
     exe.install();

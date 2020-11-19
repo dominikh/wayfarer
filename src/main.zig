@@ -1,7 +1,9 @@
 const std = @import("std");
-const wl = @import("wayland.zig");
-const wlroots = @import("wlroots.zig");
-const xkb = @import("xkb.zig");
+
+const wl = @import("wayland").server.wl;
+const wlroots = @import("wlroots");
+const xkb = @import("xkbcommon");
+
 const tracy = @import("tracy.zig");
 const libinput = @cImport({
     @cInclude("linux/input.h");
@@ -181,34 +183,34 @@ const Server = struct {
         Resize: *View,
     };
 
-    dsp: *wl.Display,
+    dsp: *wl.Server,
     evloop: *wl.EventLoop,
 
     backend: *wlroots.Backend,
     renderer: *wlroots.Renderer,
-    output_layout: *wlroots.Output.Layout,
+    output_layout: *wlroots.OutputLayout,
 
-    xdg_shell: *wlroots.XDGShell,
-    views: wl.List(View, "link"),
+    xdg_shell: *wlroots.XdgShell,
+    views: wl.list.Head(View, "link"),
 
     cursor: *wlroots.Cursor,
-    cursor_mgr: *wlroots.XCursor.Manager,
-    cursor_mode: CursorMode = .{ .Normal = .{} },
+    cursor_mgr: *wlroots.XcursorManager,
+    cursor_mode: CursorMode = .{ .Normal = void },
 
-    outputs: wl.List(Output, "link"),
+    outputs: wl.list.Head(Output, "link"),
 
     // TODO(dh): support multiple seats
     seat: Seat,
-    pointers: wl.List(Pointer, "link"),
-    keyboards: wl.List(Keyboard, "link"),
+    pointers: wl.list.Head(Pointer, "link"),
+    keyboards: wl.list.Head(Keyboard, "link"),
 
-    new_xdg_surface: wl.Listener(*wlroots.XDGSurface),
+    new_xdg_surface: wl.Listener(*wlroots.XdgSurface),
     new_output: wl.Listener(*wlroots.Output),
     new_input: wl.Listener(*wlroots.InputDevice),
-    cursor_motion: wl.Listener(*wlroots.Pointer.Events.Motion),
-    cursor_motion_absolute: wl.Listener(*wlroots.Pointer.Events.MotionAbsolute),
-    cursor_button: wl.Listener(*wlroots.Pointer.Events.Button),
-    cursor_axis: wl.Listener(*wlroots.Pointer.Events.Axis),
+    cursor_motion: wl.Listener(*wlroots.Pointer.event.Motion),
+    cursor_motion_absolute: wl.Listener(*wlroots.Pointer.event.MotionAbsolute),
+    cursor_button: wl.Listener(*wlroots.Pointer.event.Button),
+    cursor_axis: wl.Listener(*wlroots.Pointer.event.Axis),
     cursor_frame: wl.Listener(*wlroots.Cursor),
 
     fn init(server: *Server) void {
@@ -220,14 +222,11 @@ const Server = struct {
     }
 
     fn updateSeatCapabilities(server: *const Server) void {
-        var caps: c_int = 0;
-        if (!server.pointers.isEmpty()) {
-            caps |= @enumToInt(wl.struct_wl_seat.enum_wl_seat_capability.WL_SEAT_CAPABILITY_POINTER);
-        }
-        if (!server.keyboards.isEmpty()) {
-            caps |= @enumToInt(wl.struct_wl_seat.enum_wl_seat_capability.WL_SEAT_CAPABILITY_KEYBOARD);
-        }
-        server.seat.seat.setCapabilities(@intCast(u32, caps));
+        const caps = wl.Seat.Capability{
+            .pointer = !server.pointers.empty(),
+            .keyboard = !server.keyboards.empty(),
+        };
+        server.seat.seat.setCapabilities(caps);
     }
 
     fn cursorFrame(listener: *wl.Listener(*wlroots.Cursor), event: *wlroots.Cursor) void {
@@ -235,7 +234,7 @@ const Server = struct {
         server.seat.seat.pointerNotifyFrame();
     }
 
-    fn cursorButton(listener: *wl.Listener(*wlroots.Pointer.Events.Button), event: *wlroots.Pointer.Events.Button) void {
+    fn cursorButton(listener: *wl.Listener(*wlroots.Pointer.event.Button), event: *wlroots.Pointer.event.Button) void {
         const server = @fieldParentPtr(Server, "cursor_button", listener);
 
         // XXX handle return value
@@ -262,24 +261,25 @@ const Server = struct {
                         .pressed => {
                             // XXX throw an error, because this should be impossible
                         },
+                        else => unreachable,
                     }
                 }
             },
         }
     }
 
-    fn cursorMotion(listener: *wl.Listener(*wlroots.Pointer.Events.Motion), event: *wlroots.Pointer.Events.Motion) void {
+    fn cursorMotion(listener: *wl.Listener(*wlroots.Pointer.event.Motion), event: *wlroots.Pointer.event.Motion) void {
         // XXX support relative cursor motion
         std.debug.print("cursor motion\n", .{});
     }
 
-    fn cursorMotionAbsolute(listener: *wl.Listener(*wlroots.Pointer.Events.MotionAbsolute), event: *wlroots.Pointer.Events.MotionAbsolute) void {
+    fn cursorMotionAbsolute(listener: *wl.Listener(*wlroots.Pointer.event.MotionAbsolute), event: *wlroots.Pointer.event.MotionAbsolute) void {
         const server = @fieldParentPtr(Server, "cursor_motion_absolute", listener);
         server.cursor.warpAbsolute(event.device, event.x, event.y);
         server.processCursorMotion(event.time_msec);
     }
 
-    fn cursorAxis(listener: *wl.Listener(*wlroots.Pointer.Events.Axis), event: *wlroots.Pointer.Events.Axis) void {
+    fn cursorAxis(listener: *wl.Listener(*wlroots.Pointer.event.Axis), event: *wlroots.Pointer.event.Axis) void {
         const server = @fieldParentPtr(Server, "cursor_axis", listener);
         if (server.seat.seat.pointer_state.focused_surface) |surface| {
             server.seat.pointerNotifyAxis(
@@ -311,7 +311,7 @@ const Server = struct {
                 if (server.findViewUnderCursor(cursor_lx, cursor_ly, &surface, &sx, &sy)) |view| {
                     // XXX set focus only if the view changed from last time
                     if (view.server.seat.seat.getKeyboard()) |keyboard| {
-                        server.seat.seat.keyboardNotifyEnter(surface, keyboard.keycodes[0..keyboard.num_keycodes], &keyboard.modifiers);
+                        server.seat.seat.keyboardNotifyEnter(surface, &keyboard.keycodes, keyboard.num_keycodes, &keyboard.modifiers);
                     }
 
                     // XXX this probably isn't handling subsurfaces correctly
@@ -347,14 +347,14 @@ const Server = struct {
                     .x = ar.orig_geometry.width,
                     .y = ar.orig_geometry.height,
                 };
-                if (ar.edges & @intCast(u32, @enumToInt(wlroots.Edges.WLR_EDGE_LEFT)) != 0) {
+                if (ar.edges.left) {
                     new_size.x = ar.orig_geometry.width - delta_lx;
-                } else if (ar.edges & @intCast(u32, @enumToInt(wlroots.Edges.WLR_EDGE_RIGHT)) != 0) {
+                } else if (ar.edges.right) {
                     new_size.x = ar.orig_geometry.width + delta_lx;
                 }
-                if (ar.edges & @intCast(u32, @enumToInt(wlroots.Edges.WLR_EDGE_TOP)) != 0) {
+                if (ar.edges.top) {
                     new_size.y = ar.orig_geometry.height - delta_ly;
-                } else if (ar.edges & @intCast(u32, @enumToInt(wlroots.Edges.WLR_EDGE_BOTTOM)) != 0) {
+                } else if (ar.edges.bottom) {
                     new_size.y = ar.orig_geometry.height + delta_ly;
                 }
 
@@ -383,7 +383,7 @@ const Server = struct {
         //
         // OPT(dh): cache check against views' transforms by finding
         // the rectangular (non-rotated) area that views occupy
-        var iter = server.views.iterate();
+        var iter = server.views.iterator(.forward);
         while (iter.next()) |view| {
             // XXX support rotation and scaling
             const view_sx = lx - view.position.x;
@@ -400,20 +400,21 @@ const Server = struct {
     fn newInput(listener: *wl.Listener(*wlroots.InputDevice), dev: *wlroots.InputDevice) void {
         const server = @fieldParentPtr(Server, "new_input", listener);
 
-        switch (dev.device()) {
-            .keyboard => |device| {
+        switch (dev.type) {
+            .keyboard => {
+                const device = dev.device.keyboard;
                 var keyboard = allocator.create(Keyboard) catch @panic("out of memory");
                 keyboard.server = server;
                 keyboard.device = dev;
 
                 // TODO(dh): a whole bunch of keymap stuff
-                const rules: xkb.struct_xkb_rule_names = undefined;
-                const context = xkb.xkb_context_new(.XKB_CONTEXT_NO_FLAGS);
-                const keymap = xkb.xkb_map_new_from_names(context, &rules, .XKB_KEYMAP_COMPILE_NO_FLAGS);
+                const rules: xkb.RuleNames = undefined;
+                const context = xkb.Context.new(.no_flags).?;
+                const keymap = xkb.Keymap.newFromNames(context, &rules, .no_flags).?;
 
                 _ = device.setKeymap(keymap);
-                xkb.xkb_keymap_unref(keymap);
-                xkb.xkb_context_unref(context);
+                keymap.unref();
+                context.unref();
                 device.setRepeatInfo(25, 600);
 
                 keyboard.modifiers.setNotify(Keyboard.handleModifiers);
@@ -427,7 +428,7 @@ const Server = struct {
                 device.events.repeat_info.add(&keyboard.repeat_info);
                 device.events.destroy.add(&keyboard.destroy);
 
-                server.keyboards.insert(&keyboard.link);
+                server.keyboards.prepend(keyboard);
 
                 if (server.seat.seat.getKeyboard() == null) {
                     // set the first added keyboard as active so we
@@ -442,7 +443,7 @@ const Server = struct {
                 var pointer = allocator.create(Pointer) catch @panic("out of memory");
                 pointer.server = server;
                 pointer.device = dev;
-                server.pointers.insert(&pointer.link);
+                server.pointers.prepend(pointer);
             },
 
             else => {
@@ -453,14 +454,14 @@ const Server = struct {
         server.updateSeatCapabilities();
     }
 
-    fn newXdgSurface(listener: *wl.Listener(*wlroots.XDGSurface), xdg_surface: *wlroots.XDGSurface) void {
+    fn newXdgSurface(listener: *wl.Listener(*wlroots.XdgSurface), xdg_surface: *wlroots.XdgSurface) void {
         const server = @fieldParentPtr(Server, "new_xdg_surface", listener);
         switch (xdg_surface.role) {
-            .WLR_XDG_SURFACE_ROLE_TOPLEVEL => {
+            .toplevel => {
                 var view = allocator.create(View) catch @panic("out of memory");
                 view.* = .{
                     .server = server,
-                    .xdg_toplevel = xdg_surface.unnamed_0.toplevel,
+                    .xdg_toplevel = xdg_surface.role_data.toplevel,
                 };
 
                 view.map.setNotify(View.xdgSurfaceMap);
@@ -470,7 +471,7 @@ const Server = struct {
                 xdg_surface.events.unmap.add(&view.unmap);
                 xdg_surface.events.destroy.add(&view.destroy);
 
-                const toplevel = xdg_surface.unnamed_0.toplevel;
+                const toplevel = xdg_surface.role_data.toplevel;
                 view.request_move.setNotify(View.xdgToplevelRequestMove);
                 view.request_resize.setNotify(View.xdgToplevelRequestResize);
                 view.request_maximize.setNotify(View.xdgToplevelRequestMaximize);
@@ -481,7 +482,7 @@ const Server = struct {
                 view.commit.setNotify(View.commit);
                 xdg_surface.surface.events.commit.add(&view.commit);
 
-                server.views.insert(&view.link);
+                server.views.prepend(view);
             },
             else => {
                 // TODO(dh): handle other roles
@@ -493,20 +494,20 @@ const Server = struct {
 const Seat = struct {
     seat: *wlroots.Seat,
 
-    request_cursor: wl.Listener(*wlroots.Seat.Events.RequestSetCursor),
+    request_cursor: wl.Listener(*wlroots.Seat.event.RequestSetCursor),
 
     fn pointerNotifyAxis(
         seat: *const Seat,
         time_msec: u32,
-        orientation: wlroots.Pointer.AxisOrientation,
+        orientation: wlroots.AxisOrientation,
         value: f64,
         value_discrete: i32,
-        source: wlroots.Pointer.AxisSource,
+        source: wlroots.AxisSource,
     ) void {
         seat.seat.pointerNotifyAxis(time_msec, orientation, value, value_discrete, source);
     }
 
-    fn requestCursor(listener: *wl.Listener(*wlroots.Seat.Events.RequestSetCursor), event: *wlroots.Seat.Events.RequestSetCursor) void {
+    fn requestCursor(listener: *wl.Listener(*wlroots.Seat.event.RequestSetCursor), event: *wlroots.Seat.event.RequestSetCursor) void {
         const seat = @fieldParentPtr(Seat, "request_cursor", listener);
         const server = @fieldParentPtr(Server, "seat", seat);
         if (seat.seat.pointer_state.focused_client == event.seat_client) {
@@ -522,23 +523,17 @@ const Output = struct {
 
     destroy: wl.Listener(*wlroots.Output),
     frame: wl.Listener(*wlroots.Output),
-    present: wl.Listener(?*c_void),
+    present: wl.Listener(*wlroots.Output.event.Present),
 
-    link: wl.List(@This(), "link"),
-
-    fn transform_matrix(output: *Output) wlroots.Matrix {
-        return .{
-            .data = @bitCast([3][3]f32, output.output.transform_matrix),
-        };
-    }
+    link: wl.list.Link,
 
     fn newOutputNotify(listener: *wl.Listener(*wlroots.Output), output: *wlroots.Output) void {
         std.debug.print("new output\n", .{});
         const server = @fieldParentPtr(Server, "new_output", listener);
 
-        const modes = @ptrCast(*wl.List(wlroots.Output.Mode, "link"), &output.modes);
-        if (!modes.isEmpty()) {
-            const mode: *wlroots.Output.Mode = modes.prev.container();
+        const modes = &output.modes;
+        if (!modes.empty()) {
+            const mode = modes.iterator(.reverse).next().?;
             output.setMode(mode);
             output.enable(true);
             if (!output.commit()) {
@@ -550,7 +545,7 @@ const Output = struct {
         our_output.output = output;
         our_output.server = server;
         std.os.clock_gettime(std.os.CLOCK_MONOTONIC, &our_output.last_frame) catch |err| @panic(@errorName(err));
-        server.outputs.insert(&our_output.link);
+        server.outputs.prepend(our_output);
 
         our_output.destroy.setNotify(Output.destroyNotify);
         our_output.frame.setNotify(Output.frameNotify);
@@ -596,9 +591,9 @@ const Output = struct {
         renderer.begin(width, height);
 
         const color = [_]f32{ 0.3, 0.3, 0.3, 1 };
-        renderer.clear(color);
+        renderer.clear(&color);
 
-        var iter = server.views.iterate_reverse();
+        var iter = server.views.iterator(.reverse);
         while (iter.next()) |view| {
             if (!view.xdg_toplevel.base.mapped) {
                 continue;
@@ -609,7 +604,7 @@ const Output = struct {
                 .now = now,
             };
             // TODO(dh): provide a safe wrapper for wlr_xdg_surface_for_each_surface
-            view.xdg_toplevel.base.forEachSurface(Output.renderSurface, &rdata);
+            view.xdg_toplevel.base.forEachSurface(*RenderData, Output.renderSurface, &rdata);
         }
 
         our_output.output.renderSoftwareCursors(null);
@@ -619,15 +614,14 @@ const Output = struct {
         _ = our_output.output.commit();
     }
 
-    fn present(listener: *wl.Listener(?*c_void), output: ?*c_void) void {
+    fn present(listener: *wl.Listener(*wlroots.Output.event.Present), output: *wlroots.Output.event.Present) void {
         tracy.frame(null);
     }
 
-    fn renderSurface(surface: *wlroots.Surface, sx: c_int, sy: c_int, data: ?*c_void) callconv(.C) void {
+    fn renderSurface(surface: *wlroots.Surface, sx: c_int, sy: c_int, rdata: *RenderData) callconv(.C) void {
         const tracectx = tracy.trace(@src());
         defer tracectx.end();
 
-        const rdata = @ptrCast(*RenderData, @alignCast(@alignOf(*RenderData), data.?));
         const view = rdata.view;
         const output = rdata.output;
         const renderer = output.server.renderer;
@@ -640,15 +634,16 @@ const Output = struct {
         // TODO(dh): support outputs not positioned at (0, 0) in layout space
         // TODO(dh): support buffers that don't match surface coordinates
 
-        var m: wlroots.Matrix = wlroots.Matrix.Identity;
-        m.translate(@floatCast(f32, view.position.x + @intToFloat(f64, sx)), @floatCast(f32, view.position.y + @intToFloat(f64, sy)));
-        m.scale(@intToFloat(f32, surface.current.width), @intToFloat(f32, surface.current.height));
+        var m: [9]f32 = undefined;
+        wlroots.matrix.identity(&m);
+        wlroots.matrix.translate(&m, @floatCast(f32, view.position.x + @intToFloat(f64, sx)), @floatCast(f32, view.position.y + @intToFloat(f64, sy)));
+        wlroots.matrix.scale(&m, @intToFloat(f32, surface.current.width), @intToFloat(f32, surface.current.height));
 
         // var m = view.transformation_matrix();
-        m.mul(output.transform_matrix(), m);
+        wlroots.matrix.multiply(&m, &output.output.transform_matrix, &m);
 
         // XXX handle failure
-        renderer.renderTextureWithMatrix(texture, m, 1) catch {};
+        renderer.renderTextureWithMatrix(texture, &m, 1) catch {};
         // XXX make sure the two timespec structs are actually ABI compatible
 
         surface.sendFrameDone(&rdata.now);
@@ -667,7 +662,7 @@ fn deg2rad(deg: f32) f32 {
 
 const View = struct {
     server: *Server,
-    xdg_toplevel: *wlroots.XDGToplevel,
+    xdg_toplevel: *wlroots.XdgToplevel,
     // the view's position in layout space
     position: Vec2 = .{},
     rotation: f32 = 0, // in radians
@@ -677,7 +672,7 @@ const View = struct {
         orig_geometry: Box,
         /// The cursor position when the grab was initiated, in layout coordinates
         orig_cursor: Vec2,
-        edges: u32,
+        edges: wlroots.Edges,
     } = undefined,
 
     state_before_maximize: struct {
@@ -692,19 +687,19 @@ const View = struct {
         .height = undefined,
     },
 
-    map: wl.Listener(*wlroots.XDGSurface) = .{},
-    unmap: wl.Listener(*wlroots.XDGSurface) = .{},
-    destroy: wl.Listener(*wlroots.XDGSurface) = .{},
+    map: wl.Listener(*wlroots.XdgSurface) = undefined,
+    unmap: wl.Listener(*wlroots.XdgSurface) = undefined,
+    destroy: wl.Listener(*wlroots.XdgSurface) = undefined,
 
-    request_move: wl.Listener(*wlroots.XDGToplevel.Events.Move) = .{},
-    request_resize: wl.Listener(*wlroots.XDGToplevel.Events.Resize) = .{},
-    request_maximize: wl.Listener(*wlroots.XDGSurface) = .{},
-    commit: wl.Listener(?*c_void) = .{},
+    request_move: wl.Listener(*wlroots.XdgToplevel.event.Move) = undefined,
+    request_resize: wl.Listener(*wlroots.XdgToplevel.event.Resize) = undefined,
+    request_maximize: wl.Listener(*wlroots.XdgSurface) = undefined,
+    commit: wl.Listener(*wlroots.Surface) = undefined,
 
-    link: wl.List(@This(), "link") = .{},
+    link: wl.list.Link = undefined,
 
     /// transformation_matrix maps the view to layout space.
-    fn transformation_matrix(view: *const View) Matrix {
+    fn transformation_matrix(view: *const View) [9]f32 {
         // TODO(dh): support buffer transforms
 
         // OPT(dh): cache this computation, update the matrix when
@@ -715,11 +710,12 @@ const View = struct {
         // translate
         // rotate
         // scale
-        var m: Matrix = Matrix.Identity;
-        m.translate(@floatCast(f32, x), @floatCast(f32, y));
+        var m: [9]f32 = undefined;
+        wlroots.matrix.identity(&m);
+        wlroots.matrix.translate(&m, @floatCast(f32, x), @floatCast(f32, y));
+        wlroots.matrix.rotate(&m, view.rotation);
         // TODO(dh): rotation should probably be around the center, not the origin
-        m.rotate(view.rotation);
-        m.scale(@intToFloat(f32, view.width()), @intToFloat(f32, view.height()));
+        wlroots.matrix.scale(&m, @intToFloat(f32, view.width()), @intToFloat(f32, view.height()));
         return m;
     }
 
@@ -729,7 +725,7 @@ const View = struct {
         view.xdg_toplevel.base.surface.getExtends(&box);
         if (view.xdg_toplevel.base.geometry.width != 0) {
             // XXX handle return value
-            _ = &box.wlr_box_intersection(&view.xdg_toplevel.base.geometry, &box);
+            _ = &box.intersection(&view.xdg_toplevel.base.geometry, &box);
         }
         return .{
             .x = @intToFloat(f64, box.x),
@@ -748,22 +744,22 @@ const View = struct {
     }
 
     // TODO(dh): implement all of these
-    fn xdgSurfaceMap(listener: *wl.Listener(*wlroots.XDGSurface), surface: *wlroots.XDGSurface) void {
+    fn xdgSurfaceMap(listener: *wl.Listener(*wlroots.XdgSurface), surface: *wlroots.XdgSurface) void {
         const view = @fieldParentPtr(View, "map", listener);
 
         // XXX should only the focussed client be active?
-        _ = surface.unnamed_0.toplevel.setActivated(true);
+        _ = surface.role_data.toplevel.setActivated(true);
     }
 
-    fn xdgSurfaceUnmap(listener: *wl.Listener(*wlroots.XDGSurface), surface: *wlroots.XDGSurface) void {
+    fn xdgSurfaceUnmap(listener: *wl.Listener(*wlroots.XdgSurface), surface: *wlroots.XdgSurface) void {
         // XXX cancel interactive move, resize, …
         const view = @fieldParentPtr(View, "unmap", listener);
         // TODO(dh): if this was the surface with pointer focus, see if there's another window we can focus instead
     }
 
-    fn xdgSurfaceDestroy(listener: *wl.Listener(*wlroots.XDGSurface), surface: *wlroots.XDGSurface) void {
+    fn xdgSurfaceDestroy(listener: *wl.Listener(*wlroots.XdgSurface), surface: *wlroots.XdgSurface) void {
         switch (surface.role) {
-            .WLR_XDG_SURFACE_ROLE_TOPLEVEL => {
+            .toplevel => {
                 var view = @fieldParentPtr(View, "destroy", listener);
                 view.link.remove();
                 allocator.destroy(view);
@@ -774,7 +770,7 @@ const View = struct {
         }
     }
 
-    fn xdgToplevelRequestMove(listener: *wl.Listener(*wlroots.XDGToplevel.Events.Move), event: *wlroots.XDGToplevel.Events.Move) void {
+    fn xdgToplevelRequestMove(listener: *wl.Listener(*wlroots.XdgToplevel.event.Move), event: *wlroots.XdgToplevel.event.Move) void {
         // TODO(dh): check the serial against recent button presses, to prevent bad clients from invoking this at will
         // TODO(dh): unmaximize the window if it is maximized
         const view = @fieldParentPtr(View, "request_move", listener);
@@ -782,7 +778,7 @@ const View = struct {
 
         // bring the view to the front
         view.link.remove();
-        server.views.insert(&view.link);
+        server.views.prepend(view);
 
         server.cursor_mode = .{
             .Move = .{
@@ -796,7 +792,7 @@ const View = struct {
         };
     }
 
-    fn xdgToplevelRequestResize(listener: *wl.Listener(*wlroots.XDGToplevel.Events.Resize), event: *wlroots.XDGToplevel.Events.Resize) void {
+    fn xdgToplevelRequestResize(listener: *wl.Listener(*wlroots.XdgToplevel.event.Resize), event: *wlroots.XdgToplevel.event.Resize) void {
         // TODO(dh): check the serial against recent button presses, to prevent bad clients from invoking this at will
         // TODO(dh): only allow this request from the focussed client
         const view = @fieldParentPtr(View, "request_resize", listener);
@@ -819,13 +815,13 @@ const View = struct {
         };
     }
 
-    fn xdgToplevelRequestMaximize(listener: *wl.Listener(*wlroots.XDGSurface), surface: *wlroots.XDGSurface) void {
+    fn xdgToplevelRequestMaximize(listener: *wl.Listener(*wlroots.XdgSurface), surface: *wlroots.XdgSurface) void {
         const view = @fieldParentPtr(View, "request_maximize", listener);
 
         if (view.xdg_toplevel.client_pending.maximized) {
             if (view.xdg_toplevel.current.maximized) {
                 // TODO(dh): make sure wlroots doesn't swallow this event. see https://github.com/swaywm/wlroots/issues/2330
-                _ = surface.unnamed_0.toplevel.setMaximized(true);
+                _ = surface.role_data.toplevel.setMaximized(true);
                 return;
             }
 
@@ -857,15 +853,15 @@ const View = struct {
         }
     }
 
-    fn commit(listener: *wl.Listener(?*c_void), data: ?*c_void) void {
+    fn commit(listener: *wl.Listener(*wlroots.Surface), data: *wlroots.Surface) void {
         const view = @fieldParentPtr(View, "commit", listener);
         if (view.xdg_toplevel.current.resizing) {
             const edges = view.active_resize.edges;
-            if (edges & @intCast(u32, @enumToInt(wlroots.Edges.WLR_EDGE_LEFT)) != 0) {
+            if (edges.left) {
                 const delta_width = view.active_resize.orig_geometry.width - view.getGeometry().width;
                 view.position.x = view.active_resize.orig_position.x + delta_width;
             }
-            if (edges & @intCast(u32, @enumToInt(wlroots.Edges.WLR_EDGE_TOP)) != 0) {
+            if (edges.top) {
                 const delta_height = view.active_resize.orig_geometry.height - view.getGeometry().height;
                 view.position.y = view.active_resize.orig_position.y + delta_height;
             }
@@ -884,7 +880,7 @@ const Pointer = struct {
     server: *Server,
     device: *wlroots.InputDevice,
 
-    link: wl.List(@This(), "link"),
+    link: wl.list.Link,
 };
 
 const Keyboard = struct {
@@ -892,12 +888,12 @@ const Keyboard = struct {
     device: *wlroots.InputDevice,
 
     modifiers: wl.Listener(*wlroots.Keyboard),
-    key: wl.Listener(*wlroots.Keyboard.Events.Key),
+    key: wl.Listener(*wlroots.Keyboard.event.Key),
     keymap: wl.Listener(*wlroots.Keyboard),
     repeat_info: wl.Listener(*wlroots.Keyboard),
     destroy: wl.Listener(*wlroots.Keyboard),
 
-    link: wl.List(@This(), "link"),
+    link: wl.list.Link,
 
     // TODO(dh): implement all of these
     fn handleModifiers(listener: *wl.Listener(*wlroots.Keyboard), data: *wlroots.Keyboard) void {
@@ -908,7 +904,7 @@ const Keyboard = struct {
         seat.seat.keyboardNotifyModifiers(&data.modifiers);
     }
 
-    fn handleKey(listener: *wl.Listener(*wlroots.Keyboard.Events.Key), key: *wlroots.Keyboard.Events.Key) void {
+    fn handleKey(listener: *wl.Listener(*wlroots.Keyboard.event.Key), key: *wlroots.Keyboard.event.Key) void {
         const keyboard = @fieldParentPtr(Keyboard, "key", listener);
         const server = keyboard.server;
         const seat = server.seat;
@@ -927,33 +923,33 @@ pub fn main() !void {
     var server: Server = undefined;
     server.init();
 
-    server.dsp = try wl.Display.create();
+    server.dsp = try wl.Server.create();
     defer server.dsp.destroy();
 
     server.evloop = server.dsp.getEventLoop();
     server.backend = try wlroots.Backend.autocreate(server.dsp, null);
-    defer server.backend.deinit();
+    defer server.backend.destroy();
 
-    server.renderer = server.backend.getRenderer();
-    try server.renderer.initDisplay(server.dsp);
+    server.renderer = server.backend.getRenderer() orelse return error.GetRendererFailed;
+    try server.renderer.initServer(server.dsp);
     server.new_output.setNotify(Output.newOutputNotify);
     server.backend.events.new_output.add(&server.new_output);
 
     // TODO(dh): do we need to free anything?
-    _ = try wlroots.Compositor.init(server.dsp, server.renderer);
-    _ = try wlroots.DataDeviceManager.init(server.dsp);
+    _ = try wlroots.Compositor.create(server.dsp, server.renderer);
+    _ = try wlroots.DataDeviceManager.create(server.dsp);
 
-    server.output_layout = try wlroots.Output.Layout.init();
-    defer server.output_layout.deinit();
+    server.output_layout = try wlroots.OutputLayout.create();
+    defer server.output_layout.destroy();
 
-    server.cursor = try wlroots.Cursor.init();
-    defer server.cursor.deinit();
+    server.cursor = try wlroots.Cursor.create();
+    defer server.cursor.destroy();
 
     server.cursor.attachOutputLayout(server.output_layout);
 
     // TODO(dh): what do the arguments mean?
-    server.cursor_mgr = try wlroots.XCursor.Manager.init(null, 24);
-    defer server.cursor_mgr.deinit();
+    server.cursor_mgr = try wlroots.XcursorManager.create(null, 24);
+    defer server.cursor_mgr.destroy();
     try server.cursor_mgr.load(1);
 
     // TODO(dh): other cursor events
@@ -971,21 +967,22 @@ pub fn main() !void {
     server.new_input.setNotify(Server.newInput);
     server.backend.events.new_input.add(&server.new_input);
 
-    server.seat.seat = try wlroots.Seat.init(server.dsp, "seat0");
-    defer server.seat.seat.deinit();
+    server.seat.seat = try wlroots.Seat.create(server.dsp, "seat0");
+    defer server.seat.seat.destroy();
 
     server.seat.request_cursor.setNotify(Seat.requestCursor);
     server.seat.seat.events.request_set_cursor.add(&server.seat.request_cursor);
 
     // note: no destructor; the shell is a static global
-    server.xdg_shell = try wlroots.XDGShell.init(server.dsp);
+    server.xdg_shell = try wlroots.XdgShell.create(server.dsp);
     server.new_xdg_surface.setNotify(Server.newXdgSurface);
     server.xdg_shell.events.new_surface.add(&server.new_xdg_surface);
 
-    const socket: [*:0]const u8 = wl.Display.wl_display_add_socket_auto(server.dsp) orelse return error.Failure;
+    var buf: [11]u8 = undefined;
+    const socket = try server.dsp.addSocketAuto(&buf);
     std.debug.print("listening on {}\n", .{socket});
 
     try server.backend.start();
-    server.dsp.wl_display_run();
-    defer server.dsp.wl_display_destroy_clients();
+    server.dsp.run();
+    defer server.dsp.destroyClients();
 }
