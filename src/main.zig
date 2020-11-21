@@ -221,6 +221,10 @@ const Server = struct {
         return null;
     }
 
+    // TODO(dh): move part of this function into Seat. device creation
+    // is decidedly the server's responsibility, but actually managing
+    // the devices is the responsibility of the seat the device is
+    // assigend to.
     fn newInput(listener: *wl.Listener(*wlroots.InputDevice), dev: *wlroots.InputDevice) void {
         const server = @fieldParentPtr(Server, "new_input", listener);
 
@@ -326,26 +330,6 @@ const Server = struct {
 };
 
 const Seat = struct {
-    const CursorModeTag = enum {
-        Normal,
-        Move,
-        Resize,
-    };
-
-    // TODO(dh): standardize on where to put state. right now, Move
-    // stores state in the union, but Resize stores it in the view.
-    // choose one.
-    const CursorMode = union(enum) {
-        Normal: void,
-        Move: struct {
-            grabbed_view: *View,
-            orig_position: Vec2,
-            /// The cursor position when the grab was initiated, in layout coordinates
-            orig_cursor: Vec2,
-        },
-        Resize: *View,
-    };
-
     seat: *wlroots.Seat,
     server: *Server,
 
@@ -353,7 +337,15 @@ const Seat = struct {
     keyboards: wl.list.Head(Keyboard, "link"),
 
     cursor: *wlroots.Cursor,
-    cursor_mode: CursorMode = .{ .Normal = void },
+    cursor_mode: struct {
+        mode: enum {
+            normal,
+            move,
+            resize,
+        },
+        grabbed_view: ?*View,
+        initiated_by: ?u32,
+    },
     keybinding_manager: KeybindingManager,
 
     cursor_motion: wl.Listener(*wlroots.Pointer.event.Motion),
@@ -367,7 +359,11 @@ const Seat = struct {
     destroy_view: wl.Listener(*View),
 
     pub fn init(seat: *Seat, server: *Server) !void {
-        seat.cursor_mode = .Normal;
+        seat.cursor_mode = .{
+            .mode = .normal,
+            .grabbed_view = null,
+            .initiated_by = null,
+        };
         seat.server = server;
         seat.keyboards.init();
         seat.pointers.init();
@@ -409,15 +405,13 @@ const Seat = struct {
 
     fn destroyView(listener: *wl.Listener(*View), view: *View) void {
         const seat = @fieldParentPtr(Seat, "destroy_view", listener);
-        const grabbed_view = switch (seat.cursor_mode) {
-            .Move => |mode| mode.grabbed_view,
-            .Resize => |grab| grab,
-            else => return,
-        };
-
-        if (grabbed_view == view) {
+        if (seat.cursor_mode.grabbed_view == view) {
             std.debug.print("cancelling grab\n", .{});
-            seat.cursor_mode = .Normal;
+            seat.cursor_mode = .{
+                .mode = .normal,
+                .grabbed_view = null,
+                .initiated_by = null,
+            };
         }
     }
 
@@ -427,6 +421,47 @@ const Seat = struct {
             .keyboard = !seat.keyboards.empty(),
         };
         seat.seat.setCapabilities(caps);
+    }
+
+    fn startInteractiveMove(seat: *Seat, view: *View, initiated_by: u32) void {
+        view.link.remove();
+        seat.server.views.prepend(view);
+        seat.cursor_mode = .{
+            .mode = .move,
+            .grabbed_view = view,
+            .initiated_by = initiated_by,
+        };
+        view.active_grab = .{
+            .move = .{
+                .orig_position = view.position,
+                .orig_cursor = .{
+                    .x = seat.cursor.x,
+                    .y = seat.cursor.y,
+                },
+            },
+        };
+    }
+
+    fn startInteractiveResize(seat: *Seat, view: *View, initiated_by: u32, edges: wlroots.Edges) void {
+        // XXX clear focus
+        _ = view.xdg_toplevel.setResizing(true);
+
+        seat.cursor_mode = .{
+            .mode = .resize,
+            .grabbed_view = view,
+            .initiated_by = initiated_by,
+        };
+        view.active_grab = .{
+            .resize = .{
+                .orig_position = view.position,
+                .orig_geometry = view.getGeometry(),
+                .orig_cursor = .{
+                    .x = seat.cursor.x,
+                    .y = seat.cursor.y,
+                },
+                .edges = edges,
+            },
+        };
     }
 
     fn cursorFrame(listener: *wl.Listener(*wlroots.Cursor), event: *wlroots.Cursor) void {
@@ -441,57 +476,41 @@ const Seat = struct {
         // XXX don't notify if we've swallowed the button press
         _ = seat.seat.pointerNotifyButton(event.time_msec, event.button, event.state);
 
-        switch (seat.cursor_mode) {
-            .Normal => {
+        switch (seat.cursor_mode.mode) {
+            .normal => blk: {
+                if (event.state != .pressed) {
+                    break :blk;
+                }
                 if (seat.seat.getKeyboard()) |keyboard| {
                     // OPT(dh): this calculation can be cached once per keymap
                     // FIXME(dh): don't be this unsafe. use std.math.cast, and check for xkb.mod_invalid
                     const keymap = keyboard.keymap.?;
                     const wanted = @as(xkb.ModMask, 1) << @intCast(u5, keymap.modGetIndex(modkey));
                     if (wanted == keyboard.modifiers.depressed | keyboard.modifiers.latched) {
-                        if (event.button == libinput.BTN_LEFT and event.state == .pressed) {
-                            var sx: f64 = undefined;
-                            var sy: f64 = undefined;
-                            if (seat.server.findViewUnderCursor(seat.cursor.x, seat.cursor.y, null, &sx, &sy)) |view| {
-                                view.link.remove();
-                                seat.server.views.prepend(view);
-
-                                seat.cursor_mode = .{
-                                    .Move = .{
-                                        .grabbed_view = view,
-                                        .orig_position = view.position,
-                                        .orig_cursor = .{
-                                            .x = seat.cursor.x,
-                                            .y = seat.cursor.y,
-                                        },
-                                    },
-                                };
+                        var sx: f64 = undefined;
+                        var sy: f64 = undefined;
+                        if (seat.server.findViewUnderCursor(seat.cursor.x, seat.cursor.y, null, &sx, &sy)) |view| {
+                            switch (event.button) {
+                                libinput.BTN_LEFT => seat.startInteractiveMove(view, event.button),
+                                libinput.BTN_MIDDLE => seat.startInteractiveResize(view, event.button, .{
+                                    .bottom = true,
+                                    .right = true,
+                                }),
+                                else => {},
                             }
-                            // - get View under point
-                            // - bring View to front
-                            // - set cursor mode
                         }
                     }
                 }
             },
-            .Move, .Resize => {
-                if (event.button == libinput.BTN_LEFT) {
-                    switch (event.state) {
-                        .released => {
-                            switch (seat.cursor_mode) {
-                                .Move => |value| {
-                                    _ = value.grabbed_view.xdg_toplevel.setResizing(false);
-                                },
-                                .Resize => |view| {
-                                    _ = view.xdg_toplevel.setResizing(false);
-                                },
-                                else => {},
-                            }
-
-                            seat.cursor_mode = .Normal;
-                        },
-                        else => unreachable,
-                    }
+            .move, .resize => {
+                if (event.button == seat.cursor_mode.initiated_by.? and event.state == .released) {
+                    const view = seat.cursor_mode.grabbed_view.?;
+                    _ = view.xdg_toplevel.setResizing(false);
+                    seat.cursor_mode = .{
+                        .mode = .normal,
+                        .grabbed_view = null,
+                        .initiated_by = null,
+                    };
                 }
             },
         }
@@ -527,8 +546,8 @@ const Seat = struct {
         const cursor_lx = seat.cursor.x;
         const cursor_ly = seat.cursor.y;
 
-        switch (seat.cursor_mode) {
-            .Normal => {
+        switch (seat.cursor_mode.mode) {
+            .normal => {
                 // TODO(dh): the event coordinates are in the range [0, 1].
                 // for the prototype we just hackily map to the layout. for
                 // real applications, we'll have to make use of the layout,
@@ -558,17 +577,19 @@ const Seat = struct {
                 }
             },
 
-            .Move => |value| {
-                const delta_lx = cursor_lx - value.orig_cursor.x;
-                const delta_ly = cursor_ly - value.orig_cursor.y;
-                value.grabbed_view.position = .{
-                    .x = value.orig_position.x + delta_lx,
-                    .y = value.orig_position.y + delta_ly,
+            .move => {
+                const view = seat.cursor_mode.grabbed_view.?;
+                const delta_lx = cursor_lx - view.active_grab.move.orig_cursor.x;
+                const delta_ly = cursor_ly - view.active_grab.move.orig_cursor.y;
+                view.position = .{
+                    .x = view.active_grab.move.orig_position.x + delta_lx,
+                    .y = view.active_grab.move.orig_position.y + delta_ly,
                 };
             },
 
-            .Resize => |view| {
-                const ar = view.active_resize;
+            .resize => {
+                const view = seat.cursor_mode.grabbed_view.?;
+                const ar = view.active_grab.resize;
                 const delta_lx = cursor_lx - ar.orig_cursor.x;
                 const delta_ly = cursor_ly - ar.orig_cursor.y;
 
@@ -775,13 +796,21 @@ const View = struct {
     position: Vec2 = .{},
     rotation: f32 = 0, // in radians
 
-    active_resize: struct {
-        orig_position: Vec2,
-        orig_geometry: Box,
-        /// The cursor position when the grab was initiated, in layout coordinates
-        orig_cursor: Vec2,
-        edges: wlroots.Edges,
-    } = undefined,
+    active_grab: union(enum) {
+        none: void,
+        move: struct {
+            orig_position: Vec2,
+            /// The cursor position when the grab was initiated, in layout coordinates
+            orig_cursor: Vec2,
+        },
+        resize: struct {
+            orig_position: Vec2,
+            orig_cursor: Vec2,
+            orig_geometry: Box,
+            /// The cursor position when the grab was initiated, in layout coordinates
+            edges: wlroots.Edges,
+        },
+    } = .none,
 
     state_before_maximize: struct {
         valid: bool,
@@ -888,45 +917,16 @@ const View = struct {
         // TODO(dh): check the serial against recent button presses, to prevent bad clients from invoking this at will
         // TODO(dh): unmaximize the window if it is maximized
         const view = @fieldParentPtr(View, "request_move", listener);
-        const server = view.server;
-
-        // bring the view to the front
-        view.link.remove();
-        server.views.prepend(view);
-
-        server.seat.cursor_mode = .{
-            .Move = .{
-                .grabbed_view = view,
-                .orig_position = view.position,
-                .orig_cursor = .{
-                    .x = server.seat.cursor.x,
-                    .y = server.seat.cursor.y,
-                },
-            },
-        };
+        // XXX use the serial to look up which button was used to initiate this
+        view.server.seat.startInteractiveMove(view, libinput.BTN_LEFT);
     }
 
     fn xdgToplevelRequestResize(listener: *wl.Listener(*wlroots.XdgToplevel.event.Resize), event: *wlroots.XdgToplevel.event.Resize) void {
         // TODO(dh): check the serial against recent button presses, to prevent bad clients from invoking this at will
         // TODO(dh): only allow this request from the focussed client
         const view = @fieldParentPtr(View, "request_resize", listener);
-        const server = view.server;
-
-        // XXX clear focus
-        _ = view.xdg_toplevel.setResizing(true);
-
-        server.seat.cursor_mode = .{
-            .Resize = view,
-        };
-        view.active_resize = .{
-            .orig_position = view.position,
-            .orig_geometry = view.getGeometry(),
-            .orig_cursor = .{
-                .x = server.seat.cursor.x,
-                .y = server.seat.cursor.y,
-            },
-            .edges = event.edges,
-        };
+        // XXX use the serial to look up which button was used to initiate this
+        view.server.seat.startInteractiveResize(view, libinput.BTN_LEFT, event.edges);
     }
 
     fn xdgToplevelRequestMaximize(listener: *wl.Listener(*wlroots.XdgSurface), surface: *wlroots.XdgSurface) void {
@@ -970,14 +970,14 @@ const View = struct {
     fn commit(listener: *wl.Listener(*wlroots.Surface), data: *wlroots.Surface) void {
         const view = @fieldParentPtr(View, "commit", listener);
         if (view.xdg_toplevel.current.resizing) {
-            const edges = view.active_resize.edges;
+            const edges = view.active_grab.resize.edges;
             if (edges.left) {
-                const delta_width = view.active_resize.orig_geometry.width - view.getGeometry().width;
-                view.position.x = view.active_resize.orig_position.x + delta_width;
+                const delta_width = view.active_grab.resize.orig_geometry.width - view.getGeometry().width;
+                view.position.x = view.active_grab.resize.orig_position.x + delta_width;
             }
             if (edges.top) {
-                const delta_height = view.active_resize.orig_geometry.height - view.getGeometry().height;
-                view.position.y = view.active_resize.orig_position.y + delta_height;
+                const delta_height = view.active_grab.resize.orig_geometry.height - view.getGeometry().height;
+                view.position.y = view.active_grab.resize.orig_position.y + delta_height;
             }
         }
         if (view.xdg_toplevel.current.maximized) {
