@@ -183,6 +183,10 @@ const Server = struct {
     // TODO(dh): support multiple seats
     seat: Seat,
 
+    events: struct {
+        new_view: wl.Signal(*View),
+    } = undefined,
+
     new_xdg_surface: wl.Listener(*wlroots.XdgSurface),
     new_output: wl.Listener(*wlroots.Output),
     new_input: wl.Listener(*wlroots.InputDevice),
@@ -190,6 +194,7 @@ const Server = struct {
     fn init(server: *Server) !void {
         server.outputs.init();
         server.views.init();
+        server.events.new_view.init();
         try server.seat.init(server);
     }
 
@@ -289,6 +294,7 @@ const Server = struct {
                     .server = server,
                     .xdg_toplevel = xdg_surface.role_data.toplevel,
                 };
+                view.events.destroy.init();
 
                 view.map.setNotify(View.xdgSurfaceMap);
                 view.unmap.setNotify(View.xdgSurfaceUnmap);
@@ -309,6 +315,8 @@ const Server = struct {
                 xdg_surface.surface.events.commit.add(&view.commit);
 
                 server.views.prepend(view);
+
+                server.events.new_view.emit(view);
             },
             else => {
                 // TODO(dh): handle other roles
@@ -355,6 +363,9 @@ const Seat = struct {
     cursor_frame: wl.Listener(*wlroots.Cursor),
     request_cursor: wl.Listener(*wlroots.Seat.event.RequestSetCursor),
 
+    new_view: wl.Listener(*View),
+    destroy_view: wl.Listener(*View),
+
     pub fn init(seat: *Seat, server: *Server) !void {
         seat.cursor_mode = .Normal;
         seat.server = server;
@@ -367,6 +378,11 @@ const Seat = struct {
         };
 
         seat.cursor = try wlroots.Cursor.create();
+
+        seat.new_view.setNotify(Seat.newView);
+        seat.server.events.new_view.add(&seat.new_view);
+
+        seat.destroy_view.setNotify(Seat.destroyView);
 
         // TODO(dh): other cursor events
         seat.cursor_motion.setNotify(Seat.cursorMotion);
@@ -386,15 +402,13 @@ const Seat = struct {
         seat.cursor.destroy();
     }
 
-    fn updateSeatCapabilities(seat: *Seat) void {
-        const caps = wl.Seat.Capability{
-            .pointer = !seat.pointers.empty(),
-            .keyboard = !seat.keyboards.empty(),
-        };
-        seat.seat.setCapabilities(caps);
+    fn newView(listener: *wl.Listener(*View), view: *View) void {
+        const seat = @fieldParentPtr(Seat, "new_view", listener);
+        view.events.destroy.add(&seat.destroy_view);
     }
 
-    fn cancelGrab(seat: *Seat, view: *View) void {
+    fn destroyView(listener: *wl.Listener(*View), view: *View) void {
+        const seat = @fieldParentPtr(Seat, "destroy_view", listener);
         const grabbed_view = switch (seat.cursor_mode) {
             .Move => |mode| mode.grabbed_view,
             .Resize => |grab| grab,
@@ -405,6 +419,14 @@ const Seat = struct {
             std.debug.print("cancelling grab\n", .{});
             seat.cursor_mode = .Normal;
         }
+    }
+
+    fn updateSeatCapabilities(seat: *Seat) void {
+        const caps = wl.Seat.Capability{
+            .pointer = !seat.pointers.empty(),
+            .keyboard = !seat.keyboards.empty(),
+        };
+        seat.seat.setCapabilities(caps);
     }
 
     fn cursorFrame(listener: *wl.Listener(*wlroots.Cursor), event: *wlroots.Cursor) void {
@@ -773,6 +795,10 @@ const View = struct {
         .height = undefined,
     },
 
+    events: struct {
+        destroy: wl.Signal(*View),
+    } = undefined,
+
     map: wl.Listener(*wlroots.XdgSurface) = undefined,
     unmap: wl.Listener(*wlroots.XdgSurface) = undefined,
     destroy: wl.Listener(*wlroots.XdgSurface) = undefined,
@@ -849,7 +875,7 @@ const View = struct {
             .toplevel => {
                 var view = @fieldParentPtr(View, "destroy", listener);
                 view.link.remove();
-                view.server.seat.cancelGrab(view);
+                view.events.destroy.emit(view);
                 allocator.destroy(view);
             },
             else => {
