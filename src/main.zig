@@ -200,6 +200,9 @@ const Server = struct {
 
     /// findViewUnderCursor finds the view and surface at position (lx, ly), respecting input regions.
     fn findViewUnderCursor(server: *Server, lx: f64, ly: f64, surface: ?**wlroots.Surface, sx: *f64, sy: *f64) ?*View {
+        const tracectx = tracy.trace(@src());
+        defer tracectx.end();
+
         // OPT(dh): test against the previously found view. most of
         // the time, the cursor moves within a view.
         //
@@ -549,6 +552,9 @@ const Seat = struct {
     }
 
     fn processCursorMotion(seat: *Seat, time_msec: u32) void {
+        const tracectx = tracy.trace(@src());
+        defer tracectx.end();
+
         const cursor_lx = seat.cursor.x;
         const cursor_ly = seat.cursor.y;
 
@@ -703,6 +709,12 @@ const Output = struct {
         // XXX deallocate our output?
     }
 
+    fn clockGetTime() !std.os.timespec {
+        var now: std.os.timespec = undefined;
+        try std.os.clock_gettime(std.os.CLOCK_MONOTONIC, &now);
+        return now;
+    }
+
     fn frameNotify(listener: *wl.Listener(*wlroots.Output), output: *wlroots.Output) void {
         const tracectx = tracy.trace(@src());
         defer tracectx.end();
@@ -711,9 +723,8 @@ const Output = struct {
         const server = our_output.server;
         const renderer = server.renderer;
 
-        var now: std.os.timespec = undefined;
         // XXX don't panic
-        std.os.clock_gettime(std.os.CLOCK_MONOTONIC, &now) catch |err| @panic(@errorName(err));
+        const now = clockGetTime() catch |err| @panic(@errorName(err));
 
         if (!output.attachRender(null)) {
             // TODO(dh): why can this fail?
@@ -1113,6 +1124,9 @@ fn spawnTerminal(server: *Server) void {
 const modkey = xkb.names.mod.shift;
 
 pub fn main() !void {
+    const tracectx = tracy.trace(@src());
+    defer tracectx.end();
+
     // c.wlr_log_init(c.enum_wlr_log_importance.WLR_DEBUG, null);
     var server: Server = undefined;
     try server.init();
