@@ -89,7 +89,7 @@ const stdout = std.io.getStdout().writer();
 //   why, and if the values are ever not integer. if they're always
 //   integer, we can drop our use of @round. there's probably something
 //   scaling related.
-
+// FIXME(dh): don't allow multiple active grabs for a single seat
 // TODO(dh): input handling: support swipe, pinch, touch and tablet
 
 // xdg_wm_base
@@ -489,13 +489,19 @@ const Seat = struct {
                     if (wanted == keyboard.modifiers.depressed | keyboard.modifiers.latched) {
                         var sx: f64 = undefined;
                         var sy: f64 = undefined;
+                        // OPT(dh): instead of using findViewUnderCursor, get the focussed surface from the seat.
                         if (seat.server.findViewUnderCursor(seat.cursor.x, seat.cursor.y, null, &sx, &sy)) |view| {
                             switch (event.button) {
                                 libinput.BTN_LEFT => seat.startInteractiveMove(view, event.button),
-                                libinput.BTN_MIDDLE => seat.startInteractiveResize(view, event.button, .{
-                                    .bottom = true,
-                                    .right = true,
-                                }),
+                                libinput.BTN_MIDDLE => {
+                                    seat.startInteractiveResize(view, event.button, .{
+                                        // TODO(dh0: do we need to use geometry coordinates instead?
+                                        .left = sx <= view.width() / 2,
+                                        .right = sx > view.width() / 2,
+                                        .top = sy <= view.height() / 2,
+                                        .bottom = sy > view.height() / 2,
+                                    });
+                                },
                                 else => {},
                             }
                         }
@@ -876,12 +882,12 @@ const View = struct {
         };
     }
 
-    fn width(surface: *const View) i32 {
-        return surface.xdg_toplevel.base.surface.current.width;
+    fn width(surface: *const View) f64 {
+        return @intToFloat(f64, surface.xdg_toplevel.base.surface.current.width);
     }
 
-    fn height(surface: *const View) i32 {
-        return surface.xdg_toplevel.base.surface.current.height;
+    fn height(surface: *const View) f64 {
+        return @intToFloat(f64, surface.xdg_toplevel.base.surface.current.height);
     }
 
     // TODO(dh): implement all of these
