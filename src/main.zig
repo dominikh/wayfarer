@@ -25,6 +25,9 @@ const stdout = std.io.getStdout().writer();
 
 // Resources
 // - https://ppaalanen.blogspot.com/2013/11/sub-surfaces-now.html
+// - https://hikari.acmelabs.space
+
+// TODO: decide the exact semantics of shortcuts. Cf. https://xkbcommon.org/doc/current/group__state.html
 
 // Coordinate systems
 //
@@ -86,9 +89,6 @@ const stdout = std.io.getStdout().writer();
 //   why, and if the values are ever not integer. if they're always
 //   integer, we can drop our use of @round. there's probably something
 //   scaling related.
-// XXX is it me, or does wlroots not let us change surface state
-//   atomically? e.g. setting the size and setting activated both
-//   schedule configure events
 
 // TODO(dh): input handling: support swipe, pinch, touch and tablet
 
@@ -166,23 +166,6 @@ const Box = struct {
 };
 
 const Server = struct {
-    const CursorModeTag = enum {
-        Normal,
-        Move,
-        Resize,
-    };
-
-    const CursorMode = union(CursorModeTag) {
-        Normal: void,
-        Move: struct {
-            grabbed_view: *View,
-            orig_position: Vec2,
-            /// The cursor position when the grab was initiated, in layout coordinates
-            orig_cursor: Vec2,
-        },
-        Resize: *View,
-    };
-
     dsp: *wl.Server,
     evloop: *wl.EventLoop,
 
@@ -193,60 +176,287 @@ const Server = struct {
     xdg_shell: *wlroots.XdgShell,
     views: wl.list.Head(View, "link"),
 
-    cursor: *wlroots.Cursor,
     cursor_mgr: *wlroots.XcursorManager,
-    cursor_mode: CursorMode = .{ .Normal = void },
 
     outputs: wl.list.Head(Output, "link"),
 
     // TODO(dh): support multiple seats
     seat: Seat,
-    pointers: wl.list.Head(Pointer, "link"),
-    keyboards: wl.list.Head(Keyboard, "link"),
 
     new_xdg_surface: wl.Listener(*wlroots.XdgSurface),
     new_output: wl.Listener(*wlroots.Output),
     new_input: wl.Listener(*wlroots.InputDevice),
+
+    fn init(server: *Server) !void {
+        server.outputs.init();
+        server.views.init();
+        try server.seat.init(server);
+    }
+
+    /// findViewUnderCursor finds the view and surface at position (lx, ly), respecting input regions.
+    fn findViewUnderCursor(server: *Server, lx: f64, ly: f64, surface: ?**wlroots.Surface, sx: *f64, sy: *f64) ?*View {
+        // OPT(dh): test against the previously found view. most of
+        // the time, the cursor moves within a view.
+        //
+        // OPT(dh): cache check against views' transforms by finding
+        // the rectangular (non-rotated) area that views occupy
+        var iter = server.views.iterator(.forward);
+        while (iter.next()) |view| {
+            // XXX support rotation and scaling
+            const view_sx = lx - view.position.x;
+            const view_sy = ly - view.position.y;
+
+            if (view.xdg_toplevel.base.surfaceAt(view_sx, view_sy, sx, sy)) |found| {
+                if (surface) |s| {
+                    s.* = found;
+                }
+                return view;
+            }
+        }
+        return null;
+    }
+
+    fn newInput(listener: *wl.Listener(*wlroots.InputDevice), dev: *wlroots.InputDevice) void {
+        const server = @fieldParentPtr(Server, "new_input", listener);
+
+        switch (dev.type) {
+            .keyboard => {
+                const device = dev.device.keyboard;
+                var keyboard = allocator.create(Keyboard) catch @panic("out of memory");
+                keyboard.server = server;
+                keyboard.device = dev;
+
+                // TODO(dh): a whole bunch of keymap stuff
+                const rules: xkb.RuleNames = .{
+                    .rules = null,
+                    .model = null,
+                    .variant = null,
+                    .options = null,
+                    .layout = null,
+                };
+                const context = xkb.Context.new(.no_flags).?;
+                defer context.unref();
+                const keymap = xkb.Keymap.newFromNames(context, &rules, .no_flags).?;
+                defer keymap.unref();
+
+                // XXX handle failure
+                _ = device.setKeymap(keymap);
+                device.setRepeatInfo(25, 600);
+
+                keyboard.modifiers.setNotify(Keyboard.handleModifiers);
+                keyboard.key.setNotify(Keyboard.handleKey);
+                keyboard.keymap.setNotify(Keyboard.handleKeymap);
+                keyboard.repeat_info.setNotify(Keyboard.handleRepeatInfo);
+                keyboard.destroy.setNotify(Keyboard.handleDestroy);
+                device.events.modifiers.add(&keyboard.modifiers);
+                device.events.key.add(&keyboard.key);
+                device.events.keymap.add(&keyboard.keymap);
+                device.events.repeat_info.add(&keyboard.repeat_info);
+                device.events.destroy.add(&keyboard.destroy);
+
+                server.seat.keyboards.prepend(keyboard);
+
+                if (server.seat.seat.getKeyboard() == null) {
+                    // set the first added keyboard as active so we
+                    // can give new clients keyboard focus even before
+                    // any key has been pressed.
+                    server.seat.seat.setKeyboard(dev);
+                }
+            },
+
+            .pointer => {
+                server.seat.cursor.attachInputDevice(dev);
+                var pointer = allocator.create(Pointer) catch @panic("out of memory");
+                pointer.server = server;
+                pointer.device = dev;
+                server.seat.pointers.prepend(pointer);
+            },
+
+            else => {
+                // TODO(dh): handle other devices
+            },
+        }
+
+        server.seat.updateSeatCapabilities();
+    }
+
+    fn newXdgSurface(listener: *wl.Listener(*wlroots.XdgSurface), xdg_surface: *wlroots.XdgSurface) void {
+        const server = @fieldParentPtr(Server, "new_xdg_surface", listener);
+        switch (xdg_surface.role) {
+            .toplevel => {
+                var view = allocator.create(View) catch @panic("out of memory");
+                view.* = .{
+                    .server = server,
+                    .xdg_toplevel = xdg_surface.role_data.toplevel,
+                };
+
+                view.map.setNotify(View.xdgSurfaceMap);
+                view.unmap.setNotify(View.xdgSurfaceUnmap);
+                view.destroy.setNotify(View.xdgSurfaceDestroy);
+                xdg_surface.events.map.add(&view.map);
+                xdg_surface.events.unmap.add(&view.unmap);
+                xdg_surface.events.destroy.add(&view.destroy);
+
+                const toplevel = xdg_surface.role_data.toplevel;
+                view.request_move.setNotify(View.xdgToplevelRequestMove);
+                view.request_resize.setNotify(View.xdgToplevelRequestResize);
+                view.request_maximize.setNotify(View.xdgToplevelRequestMaximize);
+                toplevel.events.request_move.add(&view.request_move);
+                toplevel.events.request_resize.add(&view.request_resize);
+                toplevel.events.request_maximize.add(&view.request_maximize);
+
+                view.commit.setNotify(View.commit);
+                xdg_surface.surface.events.commit.add(&view.commit);
+
+                server.views.prepend(view);
+            },
+            else => {
+                // TODO(dh): handle other roles
+            },
+        }
+    }
+};
+
+const Seat = struct {
+    const CursorModeTag = enum {
+        Normal,
+        Move,
+        Resize,
+    };
+
+    // TODO(dh): standardize on where to put state. right now, Move
+    // stores state in the union, but Resize stores it in the view.
+    // choose one.
+    const CursorMode = union(enum) {
+        Normal: void,
+        Move: struct {
+            grabbed_view: *View,
+            orig_position: Vec2,
+            /// The cursor position when the grab was initiated, in layout coordinates
+            orig_cursor: Vec2,
+        },
+        Resize: *View,
+    };
+
+    seat: *wlroots.Seat,
+    server: *Server,
+
+    pointers: wl.list.Head(Pointer, "link"),
+    keyboards: wl.list.Head(Keyboard, "link"),
+
+    cursor: *wlroots.Cursor,
+    cursor_mode: CursorMode = .{ .Normal = void },
+    keybinding_manager: KeybindingManager,
+
     cursor_motion: wl.Listener(*wlroots.Pointer.event.Motion),
     cursor_motion_absolute: wl.Listener(*wlroots.Pointer.event.MotionAbsolute),
     cursor_button: wl.Listener(*wlroots.Pointer.event.Button),
     cursor_axis: wl.Listener(*wlroots.Pointer.event.Axis),
     cursor_frame: wl.Listener(*wlroots.Cursor),
+    request_cursor: wl.Listener(*wlroots.Seat.event.RequestSetCursor),
 
-    fn init(server: *Server) void {
-        server.cursor_mode = .Normal;
-        server.outputs.init();
-        server.views.init();
-        server.keyboards.init();
-        server.pointers.init();
+    pub fn init(seat: *Seat, server: *Server) !void {
+        seat.cursor_mode = .Normal;
+        seat.server = server;
+        seat.keyboards.init();
+        seat.pointers.init();
+        seat.keybinding_manager = .{
+            .keybindings_data = undefined,
+            .server = server,
+            .keybindings = &[0]Keybinding{},
+        };
+
+        seat.cursor = try wlroots.Cursor.create();
+
+        // TODO(dh): other cursor events
+        seat.cursor_motion.setNotify(Seat.cursorMotion);
+        seat.cursor_motion_absolute.setNotify(Seat.cursorMotionAbsolute);
+        seat.cursor_button.setNotify(Seat.cursorButton);
+        seat.cursor_axis.setNotify(Seat.cursorAxis);
+        seat.cursor_frame.setNotify(Seat.cursorFrame);
+
+        seat.cursor.events.motion.add(&seat.cursor_motion);
+        seat.cursor.events.motion_absolute.add(&seat.cursor_motion_absolute);
+        seat.cursor.events.button.add(&seat.cursor_button);
+        seat.cursor.events.axis.add(&seat.cursor_axis);
+        seat.cursor.events.frame.add(&seat.cursor_frame);
     }
 
-    fn updateSeatCapabilities(server: *const Server) void {
+    pub fn deinit(seat: *Seat) void {
+        seat.cursor.destroy();
+    }
+
+    fn updateSeatCapabilities(seat: *Seat) void {
         const caps = wl.Seat.Capability{
-            .pointer = !server.pointers.empty(),
-            .keyboard = !server.keyboards.empty(),
+            .pointer = !seat.pointers.empty(),
+            .keyboard = !seat.keyboards.empty(),
         };
-        server.seat.seat.setCapabilities(caps);
+        seat.seat.setCapabilities(caps);
+    }
+
+    fn cancelGrab(seat: *Seat, view: *View) void {
+        const grabbed_view = switch (seat.cursor_mode) {
+            .Move => |mode| mode.grabbed_view,
+            .Resize => |grab| grab,
+            else => return,
+        };
+
+        if (grabbed_view == view) {
+            std.debug.print("cancelling grab\n", .{});
+            seat.cursor_mode = .Normal;
+        }
     }
 
     fn cursorFrame(listener: *wl.Listener(*wlroots.Cursor), event: *wlroots.Cursor) void {
-        const server = @fieldParentPtr(Server, "cursor_frame", listener);
-        server.seat.seat.pointerNotifyFrame();
+        const seat = @fieldParentPtr(Seat, "cursor_frame", listener);
+        seat.seat.pointerNotifyFrame();
     }
 
     fn cursorButton(listener: *wl.Listener(*wlroots.Pointer.event.Button), event: *wlroots.Pointer.event.Button) void {
-        const server = @fieldParentPtr(Server, "cursor_button", listener);
+        const seat = @fieldParentPtr(Seat, "cursor_button", listener);
 
         // XXX handle return value
-        _ = server.seat.seat.pointerNotifyButton(event.time_msec, event.button, event.state);
+        // XXX don't notify if we've swallowed the button press
+        _ = seat.seat.pointerNotifyButton(event.time_msec, event.button, event.state);
 
-        switch (server.cursor_mode) {
-            .Normal => {},
+        switch (seat.cursor_mode) {
+            .Normal => {
+                if (seat.seat.getKeyboard()) |keyboard| {
+                    // OPT(dh): this calculation can be cached once per keymap
+                    // FIXME(dh): don't be this unsafe. use std.math.cast, and check for xkb.mod_invalid
+                    const keymap = keyboard.keymap.?;
+                    const wanted = @as(xkb.ModMask, 1) << @intCast(u5, keymap.modGetIndex(modkey));
+                    if (wanted == keyboard.modifiers.depressed | keyboard.modifiers.latched) {
+                        if (event.button == libinput.BTN_LEFT and event.state == .pressed) {
+                            var sx: f64 = undefined;
+                            var sy: f64 = undefined;
+                            if (seat.server.findViewUnderCursor(seat.cursor.x, seat.cursor.y, null, &sx, &sy)) |view| {
+                                view.link.remove();
+                                seat.server.views.prepend(view);
+
+                                seat.cursor_mode = .{
+                                    .Move = .{
+                                        .grabbed_view = view,
+                                        .orig_position = view.position,
+                                        .orig_cursor = .{
+                                            .x = seat.cursor.x,
+                                            .y = seat.cursor.y,
+                                        },
+                                    },
+                                };
+                            }
+                            // - get View under point
+                            // - bring View to front
+                            // - set cursor mode
+                        }
+                    }
+                }
+            },
             .Move, .Resize => {
                 if (event.button == libinput.BTN_LEFT) {
                     switch (event.state) {
                         .released => {
-                            switch (server.cursor_mode) {
+                            switch (seat.cursor_mode) {
                                 .Move => |value| {
                                     _ = value.grabbed_view.xdg_toplevel.setResizing(false);
                                 },
@@ -256,10 +466,7 @@ const Server = struct {
                                 else => {},
                             }
 
-                            server.cursor_mode = .Normal;
-                        },
-                        .pressed => {
-                            // XXX throw an error, because this should be impossible
+                            seat.cursor_mode = .Normal;
                         },
                         else => unreachable,
                     }
@@ -274,15 +481,15 @@ const Server = struct {
     }
 
     fn cursorMotionAbsolute(listener: *wl.Listener(*wlroots.Pointer.event.MotionAbsolute), event: *wlroots.Pointer.event.MotionAbsolute) void {
-        const server = @fieldParentPtr(Server, "cursor_motion_absolute", listener);
-        server.cursor.warpAbsolute(event.device, event.x, event.y);
-        server.processCursorMotion(event.time_msec);
+        const seat = @fieldParentPtr(Seat, "cursor_motion_absolute", listener);
+        seat.cursor.warpAbsolute(event.device, event.x, event.y);
+        seat.processCursorMotion(event.time_msec);
     }
 
     fn cursorAxis(listener: *wl.Listener(*wlroots.Pointer.event.Axis), event: *wlroots.Pointer.event.Axis) void {
-        const server = @fieldParentPtr(Server, "cursor_axis", listener);
-        if (server.seat.seat.pointer_state.focused_surface) |surface| {
-            server.seat.pointerNotifyAxis(
+        const seat = @fieldParentPtr(Seat, "cursor_axis", listener);
+        if (seat.seat.pointer_state.focused_surface) |surface| {
+            seat.pointerNotifyAxis(
                 event.time_msec,
                 event.orientation,
                 event.delta,
@@ -294,11 +501,11 @@ const Server = struct {
         }
     }
 
-    fn processCursorMotion(server: *Server, time_msec: u32) void {
-        const cursor_lx = server.cursor.x;
-        const cursor_ly = server.cursor.y;
+    fn processCursorMotion(seat: *Seat, time_msec: u32) void {
+        const cursor_lx = seat.cursor.x;
+        const cursor_ly = seat.cursor.y;
 
-        switch (server.cursor_mode) {
+        switch (seat.cursor_mode) {
             .Normal => {
                 // TODO(dh): the event coordinates are in the range [0, 1].
                 // for the prototype we just hackily map to the layout. for
@@ -308,24 +515,24 @@ const Server = struct {
                 var surface: *wlroots.Surface = undefined;
                 var sx: f64 = undefined;
                 var sy: f64 = undefined;
-                if (server.findViewUnderCursor(cursor_lx, cursor_ly, &surface, &sx, &sy)) |view| {
+                if (seat.server.findViewUnderCursor(cursor_lx, cursor_ly, &surface, &sx, &sy)) |view| {
                     // XXX set focus only if the view changed from last time
-                    if (view.server.seat.seat.getKeyboard()) |keyboard| {
-                        server.seat.seat.keyboardNotifyEnter(surface, &keyboard.keycodes, keyboard.num_keycodes, &keyboard.modifiers);
+                    if (seat.seat.getKeyboard()) |keyboard| {
+                        seat.seat.keyboardNotifyEnter(surface, &keyboard.keycodes, keyboard.num_keycodes, &keyboard.modifiers);
                     }
 
                     // XXX this probably isn't handling subsurfaces correctly
-                    if (server.seat.seat.pointer_state.focused_surface == surface) {
-                        server.seat.seat.pointerNotifyMotion(time_msec, sx, sy);
+                    if (seat.seat.pointer_state.focused_surface == surface) {
+                        seat.seat.pointerNotifyMotion(time_msec, sx, sy);
                     } else {
-                        server.seat.seat.pointerNotifyEnter(surface, sx, sy);
+                        seat.seat.pointerNotifyEnter(surface, sx, sy);
                     }
                 } else {
                     // TODO(dh): what if a button was held while the pointer left the surface?
-                    server.seat.seat.pointerNotifyClearFocus();
+                    seat.seat.pointerNotifyClearFocus();
 
                     // TODO(dh): is there a fixed set of valid pointer names?
-                    server.cursor_mgr.setCursorImage("left_ptr", server.cursor);
+                    seat.server.cursor_mgr.setCursorImage("left_ptr", seat.cursor);
                 }
             },
 
@@ -376,126 +583,6 @@ const Server = struct {
         }
     }
 
-    /// findViewUnderCursor finds the view and surface at position (lx, ly), respecting input regions.
-    fn findViewUnderCursor(server: *Server, lx: f64, ly: f64, surface: **wlroots.Surface, sx: *f64, sy: *f64) ?*View {
-        // OPT(dh): test against the previously found view. most of
-        // the time, the cursor moves within a view.
-        //
-        // OPT(dh): cache check against views' transforms by finding
-        // the rectangular (non-rotated) area that views occupy
-        var iter = server.views.iterator(.forward);
-        while (iter.next()) |view| {
-            // XXX support rotation and scaling
-            const view_sx = lx - view.position.x;
-            const view_sy = ly - view.position.y;
-
-            if (view.xdg_toplevel.base.surfaceAt(view_sx, view_sy, sx, sy)) |found| {
-                surface.* = found;
-                return view;
-            }
-        }
-        return null;
-    }
-
-    fn newInput(listener: *wl.Listener(*wlroots.InputDevice), dev: *wlroots.InputDevice) void {
-        const server = @fieldParentPtr(Server, "new_input", listener);
-
-        switch (dev.type) {
-            .keyboard => {
-                const device = dev.device.keyboard;
-                var keyboard = allocator.create(Keyboard) catch @panic("out of memory");
-                keyboard.server = server;
-                keyboard.device = dev;
-
-                // TODO(dh): a whole bunch of keymap stuff
-                const rules: xkb.RuleNames = undefined;
-                const context = xkb.Context.new(.no_flags).?;
-                const keymap = xkb.Keymap.newFromNames(context, &rules, .no_flags).?;
-
-                _ = device.setKeymap(keymap);
-                keymap.unref();
-                context.unref();
-                device.setRepeatInfo(25, 600);
-
-                keyboard.modifiers.setNotify(Keyboard.handleModifiers);
-                keyboard.key.setNotify(Keyboard.handleKey);
-                keyboard.keymap.setNotify(Keyboard.handleKeymap);
-                keyboard.repeat_info.setNotify(Keyboard.handleRepeatInfo);
-                keyboard.destroy.setNotify(Keyboard.handleDestroy);
-                device.events.modifiers.add(&keyboard.modifiers);
-                device.events.key.add(&keyboard.key);
-                device.events.keymap.add(&keyboard.keymap);
-                device.events.repeat_info.add(&keyboard.repeat_info);
-                device.events.destroy.add(&keyboard.destroy);
-
-                server.keyboards.prepend(keyboard);
-
-                if (server.seat.seat.getKeyboard() == null) {
-                    // set the first added keyboard as active so we
-                    // can give new clients keyboard focus even before
-                    // any key has been pressed.
-                    server.seat.seat.setKeyboard(dev);
-                }
-            },
-
-            .pointer => {
-                server.cursor.attachInputDevice(dev);
-                var pointer = allocator.create(Pointer) catch @panic("out of memory");
-                pointer.server = server;
-                pointer.device = dev;
-                server.pointers.prepend(pointer);
-            },
-
-            else => {
-                // TODO(dh): handle other devices
-            },
-        }
-
-        server.updateSeatCapabilities();
-    }
-
-    fn newXdgSurface(listener: *wl.Listener(*wlroots.XdgSurface), xdg_surface: *wlroots.XdgSurface) void {
-        const server = @fieldParentPtr(Server, "new_xdg_surface", listener);
-        switch (xdg_surface.role) {
-            .toplevel => {
-                var view = allocator.create(View) catch @panic("out of memory");
-                view.* = .{
-                    .server = server,
-                    .xdg_toplevel = xdg_surface.role_data.toplevel,
-                };
-
-                view.map.setNotify(View.xdgSurfaceMap);
-                view.unmap.setNotify(View.xdgSurfaceUnmap);
-                view.destroy.setNotify(View.xdgSurfaceDestroy);
-                xdg_surface.events.map.add(&view.map);
-                xdg_surface.events.unmap.add(&view.unmap);
-                xdg_surface.events.destroy.add(&view.destroy);
-
-                const toplevel = xdg_surface.role_data.toplevel;
-                view.request_move.setNotify(View.xdgToplevelRequestMove);
-                view.request_resize.setNotify(View.xdgToplevelRequestResize);
-                view.request_maximize.setNotify(View.xdgToplevelRequestMaximize);
-                toplevel.events.request_move.add(&view.request_move);
-                toplevel.events.request_resize.add(&view.request_resize);
-                toplevel.events.request_maximize.add(&view.request_maximize);
-
-                view.commit.setNotify(View.commit);
-                xdg_surface.surface.events.commit.add(&view.commit);
-
-                server.views.prepend(view);
-            },
-            else => {
-                // TODO(dh): handle other roles
-            },
-        }
-    }
-};
-
-const Seat = struct {
-    seat: *wlroots.Seat,
-
-    request_cursor: wl.Listener(*wlroots.Seat.event.RequestSetCursor),
-
     fn pointerNotifyAxis(
         seat: *const Seat,
         time_msec: u32,
@@ -509,9 +596,8 @@ const Seat = struct {
 
     fn requestCursor(listener: *wl.Listener(*wlroots.Seat.event.RequestSetCursor), event: *wlroots.Seat.event.RequestSetCursor) void {
         const seat = @fieldParentPtr(Seat, "request_cursor", listener);
-        const server = @fieldParentPtr(Server, "seat", seat);
         if (seat.seat.pointer_state.focused_client == event.seat_client) {
-            server.cursor.setSurface(event.surface, event.hotspot_x, event.hotspot_y);
+            seat.cursor.setSurface(event.surface, event.hotspot_x, event.hotspot_y);
         }
     }
 };
@@ -758,10 +844,12 @@ const View = struct {
     }
 
     fn xdgSurfaceDestroy(listener: *wl.Listener(*wlroots.XdgSurface), surface: *wlroots.XdgSurface) void {
+        std.debug.print("destroyed surface\n", .{});
         switch (surface.role) {
             .toplevel => {
                 var view = @fieldParentPtr(View, "destroy", listener);
                 view.link.remove();
+                view.server.seat.cancelGrab(view);
                 allocator.destroy(view);
             },
             else => {
@@ -780,13 +868,13 @@ const View = struct {
         view.link.remove();
         server.views.prepend(view);
 
-        server.cursor_mode = .{
+        server.seat.cursor_mode = .{
             .Move = .{
                 .grabbed_view = view,
                 .orig_position = view.position,
                 .orig_cursor = .{
-                    .x = server.cursor.x,
-                    .y = server.cursor.y,
+                    .x = server.seat.cursor.x,
+                    .y = server.seat.cursor.y,
                 },
             },
         };
@@ -801,15 +889,15 @@ const View = struct {
         // XXX clear focus
         _ = view.xdg_toplevel.setResizing(true);
 
-        server.cursor_mode = .{
+        server.seat.cursor_mode = .{
             .Resize = view,
         };
         view.active_resize = .{
             .orig_position = view.position,
             .orig_geometry = view.getGeometry(),
             .orig_cursor = .{
-                .x = server.cursor.x,
-                .y = server.cursor.y,
+                .x = server.seat.cursor.x,
+                .y = server.seat.cursor.y,
             },
             .edges = event.edges,
         };
@@ -906,22 +994,102 @@ const Keyboard = struct {
 
     fn handleKey(listener: *wl.Listener(*wlroots.Keyboard.event.Key), key: *wlroots.Keyboard.event.Key) void {
         const keyboard = @fieldParentPtr(Keyboard, "key", listener);
+        const wlr_keyboard = keyboard.device.device.keyboard;
         const server = keyboard.server;
-        const seat = server.seat;
+        var seat = server.seat;
 
-        // TODO(dh): is there any benefit to avoiding repeated calls to this?
-        seat.seat.setKeyboard(keyboard.device);
-        seat.seat.keyboardNotifyKey(key.time_msec, key.keycode, key.state);
+        // map libinput keycode to xkbcommon
+        const keycode = key.keycode + 8;
+        // XXX what is the layout index?
+        const layout_index = wlr_keyboard.xkb_state.?.keyGetLayout(keycode);
+        const raw_keysyms = wlr_keyboard.keymap.?.keyGetSymsByLevel(keycode, layout_index, 0);
+        var swallowed = false;
+        for (raw_keysyms) |sym| {
+            if (seat.keybinding_manager.keyEvent(keyboard, sym, key.state == .pressed)) {
+                swallowed = true;
+            }
+        }
+
+        // FIXME(dh): do not send key release events if the key press was swallowed
+
+        if (!swallowed) {
+            // TODO(dh): is there any benefit to avoiding repeated calls to this?
+            seat.seat.setKeyboard(keyboard.device);
+            seat.seat.keyboardNotifyKey(key.time_msec, key.keycode, key.state);
+        }
     }
     fn handleKeymap(listener: *wl.Listener(*wlroots.Keyboard), data: *wlroots.Keyboard) void {}
     fn handleRepeatInfo(listener: *wl.Listener(*wlroots.Keyboard), data: *wlroots.Keyboard) void {}
     fn handleDestroy(listener: *wl.Listener(*wlroots.Keyboard), data: *wlroots.Keyboard) void {}
 };
 
+const KeybindingManager = struct {
+    keybindings_data: [256]Keybinding,
+    keybindings: []Keybinding,
+
+    server: *Server,
+
+    fn addKeybinding(self: *KeybindingManager, keybinding: Keybinding) !void {
+        if (self.keybindings.len == self.keybindings_data.len) {
+            return error.OutOfMemory;
+        }
+        self.keybindings = self.keybindings_data[0 .. self.keybindings.len + 1];
+        self.keybindings[self.keybindings.len - 1] = keybinding;
+    }
+
+    fn keyEvent(self: *KeybindingManager, keyboard: *Keyboard, key: xkb.Keysym, pressed: bool) bool {
+        if (!pressed) {
+            return false;
+        }
+        const keymap = keyboard.device.device.keyboard.keymap.?;
+        const mods = keyboard.device.device.keyboard.modifiers;
+
+        for (self.keybindings) |keybinding| {
+            // OPT(dh): this calculation can be cached once per keymap
+            var wanted: xkb.ModMask = 0;
+            for (keybinding.modifiers) |mod| {
+                const modIndex = keymap.modGetIndex(mod);
+                if (modIndex == xkb.mod_invalid) {
+                    continue;
+                }
+                wanted |= @as(xkb.ModMask, 1) << (std.math.cast(u5, modIndex) catch {
+                    // TODO(dh): log an error?
+                    continue;
+                });
+            }
+
+            if (wanted == mods.depressed | mods.latched and keybinding.keysym == key) {
+                keybinding.cb(self.server);
+                return true;
+            }
+        }
+
+        return false;
+    }
+};
+
+const Keybinding = struct {
+    modifiers: []const [*:0]const u8,
+    keysym: xkb.Keysym,
+    cb: fn (*Server) void,
+};
+
+fn spawnTerminal(server: *Server) void {
+    std.debug.print("spawning terminal\n", .{});
+}
+
+const modkey = xkb.names.mod.shift;
+
 pub fn main() !void {
     // c.wlr_log_init(c.enum_wlr_log_importance.WLR_DEBUG, null);
     var server: Server = undefined;
-    server.init();
+    try server.init();
+
+    try server.seat.keybinding_manager.addKeybinding(.{
+        .modifiers = &[_][*:0]const u8{modkey},
+        .keysym = xkb.Keysym.Return,
+        .cb = spawnTerminal,
+    });
 
     server.dsp = try wl.Server.create();
     defer server.dsp.destroy();
@@ -942,27 +1110,12 @@ pub fn main() !void {
     server.output_layout = try wlroots.OutputLayout.create();
     defer server.output_layout.destroy();
 
-    server.cursor = try wlroots.Cursor.create();
-    defer server.cursor.destroy();
-
-    server.cursor.attachOutputLayout(server.output_layout);
+    server.seat.cursor.attachOutputLayout(server.output_layout);
 
     // TODO(dh): what do the arguments mean?
     server.cursor_mgr = try wlroots.XcursorManager.create(null, 24);
     defer server.cursor_mgr.destroy();
     try server.cursor_mgr.load(1);
-
-    // TODO(dh): other cursor events
-    server.cursor_motion.setNotify(Server.cursorMotion);
-    server.cursor_motion_absolute.setNotify(Server.cursorMotionAbsolute);
-    server.cursor_button.setNotify(Server.cursorButton);
-    server.cursor_axis.setNotify(Server.cursorAxis);
-    server.cursor_frame.setNotify(Server.cursorFrame);
-    server.cursor.events.motion.add(&server.cursor_motion);
-    server.cursor.events.motion_absolute.add(&server.cursor_motion_absolute);
-    server.cursor.events.button.add(&server.cursor_button);
-    server.cursor.events.axis.add(&server.cursor_axis);
-    server.cursor.events.frame.add(&server.cursor_frame);
 
     server.new_input.setNotify(Server.newInput);
     server.backend.events.new_input.add(&server.new_input);
