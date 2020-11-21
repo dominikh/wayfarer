@@ -78,9 +78,6 @@ const stdout = std.io.getStdout().writer();
 //
 // TODO(dh): don't use std.debug.print for user output
 // TODO(dh): support multiple cursors
-// TODO(dh): run wayland-scanner in build.zig
-// TODO(dh): the use of fieldParentPtr is error-prone, because we
-//   might accidentally use the wrong field. can we do better?
 // FIXME(dh): don't use @panic in functions called from C; send an error to the wayland client
 // TODO(dh): ponder https://github.com/swaywm/sway/pull/4452
 // TODO(dh): http://www.jlekstrand.net/jason/projects/wayland/transforms/
@@ -749,7 +746,6 @@ const Output = struct {
                 .view = view,
                 .now = now,
             };
-            // TODO(dh): provide a safe wrapper for wlr_xdg_surface_for_each_surface
             view.xdg_toplevel.base.forEachSurface(*RenderData, Output.renderSurface, &rdata);
         }
 
@@ -901,7 +897,6 @@ const View = struct {
         return @intToFloat(f64, surface.xdg_toplevel.base.surface.current.height);
     }
 
-    // TODO(dh): implement all of these
     fn xdgSurfaceMap(listener: *wl.Listener(*wlroots.XdgSurface), surface: *wlroots.XdgSurface) void {
         const view = @fieldParentPtr(View, "map", listener);
 
@@ -1026,7 +1021,6 @@ const Keyboard = struct {
 
     link: wl.list.Link,
 
-    // TODO(dh): implement all of these
     fn handleModifiers(listener: *wl.Listener(*wlroots.Keyboard), data: *wlroots.Keyboard) void {
         const keyboard = @fieldParentPtr(Keyboard, "modifiers", listener);
         const seat = keyboard.server.seat;
@@ -1061,6 +1055,7 @@ const Keyboard = struct {
             seat.seat.keyboardNotifyKey(key.time_msec, key.keycode, key.state);
         }
     }
+    // TODO(dh): implement all of these
     fn handleKeymap(listener: *wl.Listener(*wlroots.Keyboard), data: *wlroots.Keyboard) void {}
     fn handleRepeatInfo(listener: *wl.Listener(*wlroots.Keyboard), data: *wlroots.Keyboard) void {}
     fn handleDestroy(listener: *wl.Listener(*wlroots.Keyboard), data: *wlroots.Keyboard) void {}
