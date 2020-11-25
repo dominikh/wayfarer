@@ -21,6 +21,8 @@ extern fn ___tracy_emit_memory_alloc_callstack(ptr: *const c_void, size: usize, 
 extern fn ___tracy_emit_memory_free_callstack(ptr: *const c_void, depth: c_int, secure: c_int) void;
 extern fn ___tracy_emit_memory_alloc(ptr: *const c_void, size: usize, secure: c_int) void;
 extern fn ___tracy_emit_memory_free(ptr: *const c_void, secure: c_int) void;
+extern fn ___tracy_emit_memory_alloc_named(ptr: *const c_void, size: usize, secure: c_int, name: [*:0]const u8) void;
+extern fn ___tracy_emit_memory_free_named(ptr: *const c_void, secure: c_int, name: [*:0]const u8) void;
 
 pub fn frame(name: ?[*:0]const u8) void {
     if (!enable) return;
@@ -40,21 +42,37 @@ pub fn frameEnd(name: ?[*:0]const u8) void {
 // TODO(dh): stack capture doesn't seem to be working at the moment, so disable it.
 const stack_depth = 0;
 
-inline fn _alloc(ptr: []u8, size: usize) void {
+inline fn _alloc(ptr: []u8, size: usize, name: ?[*:0]const u8) void {
     if (!enable) return;
     if (stack_depth > 0) {
-        ___tracy_emit_memory_alloc_callstack(ptr.ptr, size, stack_depth, 0);
+        if (name) |n| {
+            ___tracy_emit_memory_alloc_callstack_named(ptr.ptr, size, stack_depth, 0, n);
+        } else {
+            ___tracy_emit_memory_alloc_callstack(ptr.ptr, size, stack_depth, 0);
+        }
     } else {
-        ___tracy_emit_memory_alloc(ptr.ptr, size, 0);
+        if (name) |n| {
+            ___tracy_emit_memory_alloc_named(ptr.ptr, size, 0, n);
+        } else {
+            ___tracy_emit_memory_alloc(ptr.ptr, size, 0);
+        }
     }
 }
 
-inline fn _free(ptr: []u8) void {
+inline fn _free(ptr: []u8, name: ?[*:0]const u8) void {
     if (!enable) return;
     if (stack_depth > 0) {
-        ___tracy_emit_memory_free_callstack(ptr.ptr, stack_depth, 0);
+        if (name) |n| {
+            ___tracy_emit_memory_free_callstack_named(ptr.ptr, stack_depth, 0, n);
+        } else {
+            ___tracy_emit_memory_free_callstack(ptr.ptr, stack_depth, 0);
+        }
     } else {
-        ___tracy_emit_memory_free(ptr.ptr, 0);
+        if (name) |n| {
+            ___tracy_emit_memory_free_named(ptr.ptr, 0, n);
+        } else {
+            ___tracy_emit_memory_free(ptr.ptr, 0);
+        }
     }
 }
 
@@ -120,16 +138,16 @@ pub const Allocator = struct {
     fn allocFn(ptr: *std.mem.Allocator, arg1: usize, arg2: u29, arg3: u29, arg4: usize) std.mem.Allocator.Error![]u8 {
         const alloc = @fieldParentPtr(Allocator, "allocator", ptr);
         const ret = try alloc.orig.allocFn(alloc.orig, arg1, arg2, arg3, arg4);
-        _alloc(ret, ret.len);
+        _alloc(ret, ret.len, alloc.name);
         return ret;
     }
 
     fn resizeFn(ptr: *std.mem.Allocator, arg1: []u8, arg2: u29, new_size: usize, arg4: u29, arg5: usize) std.mem.Allocator.Error!u64 {
         const alloc = @fieldParentPtr(Allocator, "allocator", ptr);
         const ret = try alloc.orig.resizeFn(alloc.orig, arg1, arg2, new_size, arg4, arg5);
-        _free(arg1);
+        _free(arg1, alloc.name);
         if (new_size != 0) {
-            _alloc(arg1, ret);
+            _alloc(arg1, ret, alloc.name);
         }
         return ret;
     }
