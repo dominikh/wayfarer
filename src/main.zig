@@ -4,6 +4,10 @@ const wl = @import("wayland").server.wl;
 const wlroots = @import("wlroots");
 const xkb = @import("xkbcommon");
 
+const c = @cImport({
+    @cInclude("stdlib.h");
+});
+const spawn = @import("spawn.zig");
 const tracy = @import("tracy.zig");
 const libinput = @cImport({
     @cInclude("linux/input.h");
@@ -12,6 +16,11 @@ var allocator_state = tracy.Allocator.init(std.heap.c_allocator, "C allocator");
 const allocator = &allocator_state.allocator;
 
 const stdout = std.io.getStdout().writer();
+
+// TODO(dh): should window movement relative to a stationary cursor be
+// considered cursor movement? say we have two seats with a pointer
+// each, and one seat moves a window under the other seat's cursor,
+// should the window receive cursor motion events?
 
 // The "seat" is a Wayland abstraction that provides one keyboard, one
 // pointer device and one touch device. This is independent of the
@@ -1109,11 +1118,61 @@ const KeybindingManager = struct {
 const Keybinding = struct {
     modifiers: []const [*:0]const u8,
     keysym: xkb.Keysym,
+    // TODO(dh): keybinds should be able to report failure, with a
+    // descriptive error message. then the compositor can present the
+    // message to the user.
     cb: fn (*Server) void,
 };
 
+const WL_EVENT_READABLE = 0x01;
+const WL_EVENT_WRITABLE = 0x02;
+const WL_EVENT_HANGUP = 0x04;
+const WL_EVENT_ERROR = 0x08;
+
+fn dispatch(fd: c_int, mask: u32, data: *EventSource) callconv(.C) c_int {
+    if (mask & WL_EVENT_HANGUP != 0 or mask & WL_EVENT_ERROR != 0) {
+        // XXX what should we do here? kill the process? do nothing?
+        return 0;
+    }
+    if (mask & WL_EVENT_READABLE != 0) {
+        spawn.wait(@bitCast(std.c.pid_t, fd)) catch {
+            unreachable;
+        };
+        data.hnd.remove();
+        allocator.destroy(data);
+        return 0;
+    }
+    unreachable;
+}
+
+const EventSource = struct {
+    hnd: *wl.EventSource,
+};
+
 fn spawnTerminal(server: *Server) void {
-    std.debug.print("spawning terminal\n", .{});
+    const tracectx = tracy.trace(@src());
+    defer tracectx.end();
+
+    const pid = spawn.spawn(allocator, &[_][]const u8{"termite"}) catch |err| {
+        std.debug.print("couldn't spawn terminal: {}\n", .{err});
+        return;
+    };
+
+    var data = allocator.create(EventSource) catch {
+        // XXX handle
+        return;
+    };
+    data.hnd = server.dsp.getEventLoop().addFd(
+        *EventSource,
+        pid,
+        WL_EVENT_READABLE,
+        dispatch,
+        data,
+    ) catch {
+        // XXX handle error
+        return;
+    };
+    // XXX reap the process
 }
 
 const modkey = xkb.names.mod.shift;
@@ -1174,6 +1233,8 @@ pub fn main() !void {
 
     var buf: [11]u8 = undefined;
     const socket = try server.dsp.addSocketAuto(&buf);
+    // XXX handle error
+    _ = c.setenv("WAYLAND_DISPLAY", socket, 1);
     std.debug.print("listening on {}\n", .{socket});
 
     try server.backend.start();
