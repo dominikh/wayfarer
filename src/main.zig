@@ -1047,13 +1047,29 @@ const Keyboard = struct {
 
         // map libinput keycode to xkbcommon
         const keycode = key.keycode + 8;
-        // XXX what is the layout index?
-        const layout_index = wlr_keyboard.xkb_state.?.keyGetLayout(keycode);
-        const raw_keysyms = wlr_keyboard.keymap.?.keyGetSymsByLevel(keycode, layout_index, 0);
+
         var swallowed = false;
-        for (raw_keysyms) |sym| {
-            if (seat.keybinding_manager.keyEvent(keyboard, sym, key.state == .pressed)) {
+        for (wlr_keyboard.xkb_state.?.keyGetSyms(keycode)) |keysym| {
+            const sym = @enumToInt(keysym);
+            if (sym >= @enumToInt(xkb.Keysym.XF86Switch_VT_1) and sym <= @enumToInt(xkb.Keysym.XF86Switch_VT_12)) {
+                const backend = server.backend;
+                if (backend.getSession()) |session| {
+                    const vt = sym - @enumToInt(xkb.Keysym.XF86Switch_VT_1) + 1;
+                    // XXX handle failure
+                    _ = session.changeVt(vt);
+                }
                 swallowed = true;
+            }
+        }
+
+        if (!swallowed) {
+            // XXX what is the layout index?
+            const layout_index = wlr_keyboard.xkb_state.?.keyGetLayout(keycode);
+            const raw_keysyms = wlr_keyboard.keymap.?.keyGetSymsByLevel(keycode, layout_index, 0);
+            for (raw_keysyms) |sym| {
+                if (seat.keybinding_manager.keyEvent(keyboard, sym, key.state == .pressed)) {
+                    swallowed = true;
+                }
             }
         }
 
@@ -1089,6 +1105,7 @@ const KeybindingManager = struct {
         if (!pressed) {
             return false;
         }
+
         const keymap = keyboard.device.device.keyboard.keymap.?;
         const mods = keyboard.device.device.keyboard.modifiers;
 
