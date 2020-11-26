@@ -783,13 +783,24 @@ const Output = struct {
         // buffer -> surface -> layout -> output
 
         // TODO(dh): support rotated outputs
-        // TODO(dh): support outputs not positioned at (0, 0) in layout space
         // TODO(dh): support buffers that don't match surface coordinates
 
+        var ox: f64 = undefined;
+        var oy: f64 = undefined;
+        output.server.output_layout.outputCoords(output.output, &ox, &oy);
         var m: [9]f32 = undefined;
         wlroots.matrix.identity(&m);
-        wlroots.matrix.translate(&m, @floatCast(f32, view.position.x + @intToFloat(f64, sx)), @floatCast(f32, view.position.y + @intToFloat(f64, sy)));
-        wlroots.matrix.scale(&m, @intToFloat(f32, surface.current.width), @intToFloat(f32, surface.current.height));
+        wlroots.matrix.translate(
+            &m,
+            @floatCast(f32, view.position.x + @intToFloat(f64, sx) + ox),
+            @floatCast(f32, view.position.y + @intToFloat(f64, sy) + oy),
+        );
+
+        wlroots.matrix.scale(
+            &m,
+            @intToFloat(f32, surface.current.width),
+            @intToFloat(f32, surface.current.height),
+        );
 
         // var m = view.transformation_matrix();
         wlroots.matrix.multiply(&m, &output.output.transform_matrix, &m);
