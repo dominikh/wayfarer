@@ -532,8 +532,9 @@ const Seat = struct {
     }
 
     fn cursorMotion(listener: *wl.Listener(*wlroots.Pointer.event.Motion), event: *wlroots.Pointer.event.Motion) void {
-        // XXX support relative cursor motion
-        std.debug.print("cursor motion\n", .{});
+        const seat = @fieldParentPtr(Seat, "cursor_motion", listener);
+        seat.cursor.move(event.device, event.delta_x, event.delta_y);
+        seat.processCursorMotion(event.time_msec);
     }
 
     fn cursorMotionAbsolute(listener: *wl.Listener(*wlroots.Pointer.event.MotionAbsolute), event: *wlroots.Pointer.event.MotionAbsolute) void {
