@@ -984,7 +984,7 @@ const View = struct {
                 .height = geom.height,
             };
 
-            const extents = view.server.output_layout.getBox(output).*;
+            const extents = view.server.output_layout.getBox(output).?;
             _ = view.xdg_toplevel.setMaximized(true);
             _ = view.xdg_toplevel.setSize(@intCast(u32, extents.width), @intCast(u32, extents.height));
         } else {
@@ -1067,7 +1067,7 @@ const Keyboard = struct {
                 if (backend.getSession()) |session| {
                     const vt = sym - @enumToInt(xkb.Keysym.XF86Switch_VT_1) + 1;
                     // XXX handle failure
-                    _ = session.changeVt(vt);
+                    session.changeVt(vt) catch {};
                 }
                 swallowed = true;
             }
