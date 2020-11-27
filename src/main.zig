@@ -17,6 +17,12 @@ const allocator = &allocator_state.allocator;
 
 const stdout = std.io.getStdout().writer();
 
+// TODO(dh): handle implicit grabs correctly.
+
+// TODO(dh): should things like interactive move/resize be implemented
+// using wlroots's grabber interfaces? what are these interfaces
+// really for?
+
 // TODO(dh): should window movement relative to a stationary cursor be
 // considered cursor movement? say we have two seats with a pointer
 // each, and one seat moves a window under the other seat's cursor,
@@ -363,6 +369,8 @@ const Seat = struct {
     cursor_axis: wl.Listener(*wlroots.Pointer.event.Axis),
     cursor_frame: wl.Listener(*wlroots.Cursor),
     request_cursor: wl.Listener(*wlroots.Seat.event.RequestSetCursor),
+    request_start_drag: wl.Listener(*wlroots.Seat.event.RequestStartDrag),
+    start_drag: wl.Listener(*wlroots.Drag),
 
     new_view: wl.Listener(*View),
     destroy_view: wl.Listener(*View),
@@ -581,12 +589,13 @@ const Seat = struct {
                         seat.seat.keyboardNotifyEnter(surface, &keyboard.keycodes, keyboard.num_keycodes, &keyboard.modifiers);
                     }
 
-                    // XXX this probably isn't handling subsurfaces correctly
-                    if (seat.seat.pointer_state.focused_surface == surface) {
-                        seat.seat.pointerNotifyMotion(time_msec, sx, sy);
-                    } else {
-                        seat.seat.pointerNotifyEnter(surface, sx, sy);
-                    }
+                    // In a previous version of this code, we checked seat.pointer_state.focused_surface == surface,
+                    // to avoid extra calls to pointerNotifyEnter. This didn't work with an active drag-and-drop
+                    // however, because pointerNotifyEnter no longer updated focused_surface, and we never called
+                    // pointerNotifyMotion.
+                    seat.seat.pointerNotifyEnter(surface, sx, sy);
+                    // TODO(dh): is it fine to call both pointerNotifyEnter and pointerNotifyMotion? Does this cause duplicate events?
+                    seat.seat.pointerNotifyMotion(time_msec, sx, sy);
                 } else {
                     // TODO(dh): what if a button was held while the pointer left the surface?
                     seat.seat.pointerNotifyClearFocus();
@@ -661,6 +670,16 @@ const Seat = struct {
         if (seat.seat.pointer_state.focused_client == event.seat_client) {
             seat.cursor.setSurface(event.surface, event.hotspot_x, event.hotspot_y);
         }
+    }
+
+    fn requestStartDrag(listener: *wl.Listener(*wlroots.Seat.event.RequestStartDrag), event: *wlroots.Seat.event.RequestStartDrag) void {
+        // TODO(dh): validate serial
+        const seat = @fieldParentPtr(Seat, "request_start_drag", listener);
+        seat.seat.startPointerDrag(event.drag, event.serial);
+    }
+
+    fn startDrag(listener: *wl.Listener(*wlroots.Drag), drag: *wlroots.Drag) void {
+        // TODO(dh): support drag icons
     }
 };
 
@@ -1253,7 +1272,12 @@ pub fn main() !void {
     defer server.seat.seat.destroy();
 
     server.seat.request_cursor.setNotify(Seat.requestCursor);
+    server.seat.request_start_drag.setNotify(Seat.requestStartDrag);
+    server.seat.start_drag.setNotify(Seat.startDrag);
     server.seat.seat.events.request_set_cursor.add(&server.seat.request_cursor);
+    server.seat.seat.events.request_start_drag.add(&server.seat.request_start_drag);
+    server.seat.seat.events.start_drag.add(&server.seat.start_drag);
+    // TODO(dh): all the other seat events
 
     // note: no destructor; the shell is a static global
     server.xdg_shell = try wlroots.XdgShell.create(server.dsp);
