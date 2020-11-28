@@ -213,6 +213,24 @@ const Server = struct {
         try server.seat.init(server);
     }
 
+    fn raiseView(server: *Server, view: *View, raiseParent: bool) void {
+        if (view.xdg_toplevel.parent) |parent| {
+            if (raiseParent) {
+                server.raiseView(@intToPtr(*View, parent.data), false);
+            }
+        }
+
+        view.link.remove();
+        server.views.prepend(view);
+
+        var iter = view.children.iterator(.forward);
+        while (iter.next()) |item| {
+            // FIXME(dh): consider FIXME in setParent; this might contain loops
+            // FIXME(dh): this ignores the relative ordering between children
+            server.raiseView(item, false);
+        }
+    }
+
     /// findViewUnderCursor finds the view and surface at position (lx, ly), respecting input regions.
     fn findViewUnderCursor(server: *Server, lx: f64, ly: f64, surface: ?**wlroots.Surface, sx: *f64, sy: *f64) ?*View {
         const tracectx = tracy.trace(@src());
@@ -314,6 +332,7 @@ const Server = struct {
                 var view = allocator.create(View) catch @panic("out of memory");
                 view.init(server, xdg_surface.role_data.toplevel);
                 server.views.prepend(view);
+                xdg_surface.data = @ptrToInt(view);
                 server.events.new_view.emit(view);
             },
             else => {
@@ -421,8 +440,7 @@ const Seat = struct {
     }
 
     fn startInteractiveMove(seat: *Seat, view: *View, initiated_by: u32) void {
-        view.link.remove();
-        seat.server.views.prepend(view);
+        seat.server.raiseView(view, true);
         seat.cursor_mode = .{
             .mode = .move,
             .grabbed_view = view,
@@ -861,6 +879,9 @@ const View = struct {
         destroy: wl.Signal(*View),
     } = undefined,
 
+    children: wl.list.Head(View, "child_link") = undefined,
+    child_link: wl.list.Link = .{ .prev = null, .next = null },
+
     map: wl.Listener(*wlroots.XdgSurface) = undefined,
     unmap: wl.Listener(*wlroots.XdgSurface) = undefined,
     destroy: wl.Listener(*wlroots.XdgSurface) = undefined,
@@ -869,6 +890,7 @@ const View = struct {
     request_resize: wl.Listener(*wlroots.XdgToplevel.event.Resize) = undefined,
     request_maximize: wl.Listener(*wlroots.XdgSurface) = undefined,
     commit: wl.Listener(*wlroots.Surface) = undefined,
+    set_parent: wl.Listener(*wlroots.XdgSurface) = undefined,
 
     link: wl.list.Link = undefined,
 
@@ -877,6 +899,7 @@ const View = struct {
             .server = server,
             .xdg_toplevel = toplevel,
         };
+        view.children.init();
         view.events.destroy.init();
 
         view.map.setNotify(View.xdgSurfaceMap);
@@ -889,9 +912,11 @@ const View = struct {
         view.request_move.setNotify(View.xdgToplevelRequestMove);
         view.request_resize.setNotify(View.xdgToplevelRequestResize);
         view.request_maximize.setNotify(View.xdgToplevelRequestMaximize);
+        view.set_parent.setNotify(View.xdgToplevelSetParent);
         toplevel.events.request_move.add(&view.request_move);
         toplevel.events.request_resize.add(&view.request_resize);
         toplevel.events.request_maximize.add(&view.request_maximize);
+        toplevel.events.set_parent.add(&view.set_parent);
 
         view.commit.setNotify(View.commit);
         toplevel.base.surface.events.commit.add(&view.commit);
@@ -1022,6 +1047,21 @@ const View = struct {
             // TODO(dh): what happens if the client changed its geometry in the meantime? our old width and height will no longer be correct.
             _ = view.xdg_toplevel.setSize(@floatToInt(u32, @round(view.state_before_maximize.width)), @floatToInt(u32, @round(view.state_before_maximize.height)));
         }
+    }
+
+    fn xdgToplevelSetParent(listener: *wl.Listener(*wlroots.XdgSurface), surface: *wlroots.XdgSurface) void {
+        // FIXME(dh): can a misbehaving client create a cycle like a -> b -> a?
+        // FIXME(dh): does wlroots call this when the current parent gets unmapped?
+        const view = @fieldParentPtr(View, "set_parent", listener);
+        if (view.child_link.prev != null) {
+            view.child_link.remove();
+        }
+        if (surface.role_data.toplevel.parent) |parent| {
+            const parent_view = @intToPtr(*View, parent.data);
+            parent_view.children.append(view);
+        }
+
+        // TODO(dh): should we raise the window above its parent?
     }
 
     fn commit(listener: *wl.Listener(*wlroots.Surface), data: *wlroots.Surface) void {
