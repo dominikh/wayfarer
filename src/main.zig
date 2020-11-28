@@ -19,9 +19,12 @@ const stdout = std.io.getStdout().writer();
 
 // TODO(dh): handle implicit grabs correctly.
 
-// TODO(dh): should things like interactive move/resize be implemented
-// using wlroots's grabber interfaces? what are these interfaces
-// really for?
+// We looked into using seat grabs to implement interactive move and
+// resize, but it's not quite the right abstraction. What these grabs
+// do is redirect calls to wlr_seat_*_notify_* through a grab, which can
+// manipulate or drop the calls. This isn't useful for something like
+// interactive move, because we need global mouse events, not ones
+// local to a surface.
 
 // TODO(dh): should window movement relative to a stationary cursor be
 // considered cursor movement? say we have two seats with a pointer
@@ -309,36 +312,13 @@ const Server = struct {
         switch (xdg_surface.role) {
             .toplevel => {
                 var view = allocator.create(View) catch @panic("out of memory");
-                view.* = .{
-                    .server = server,
-                    .xdg_toplevel = xdg_surface.role_data.toplevel,
-                };
-                view.events.destroy.init();
-
-                view.map.setNotify(View.xdgSurfaceMap);
-                view.unmap.setNotify(View.xdgSurfaceUnmap);
-                view.destroy.setNotify(View.xdgSurfaceDestroy);
-                xdg_surface.events.map.add(&view.map);
-                xdg_surface.events.unmap.add(&view.unmap);
-                xdg_surface.events.destroy.add(&view.destroy);
-
-                const toplevel = xdg_surface.role_data.toplevel;
-                view.request_move.setNotify(View.xdgToplevelRequestMove);
-                view.request_resize.setNotify(View.xdgToplevelRequestResize);
-                view.request_maximize.setNotify(View.xdgToplevelRequestMaximize);
-                toplevel.events.request_move.add(&view.request_move);
-                toplevel.events.request_resize.add(&view.request_resize);
-                toplevel.events.request_maximize.add(&view.request_maximize);
-
-                view.commit.setNotify(View.commit);
-                xdg_surface.surface.events.commit.add(&view.commit);
-
+                view.init(server, xdg_surface.role_data.toplevel);
                 server.views.prepend(view);
-
                 server.events.new_view.emit(view);
             },
             else => {
                 // TODO(dh): handle other roles
+                unreachable;
             },
         }
     }
@@ -891,6 +871,31 @@ const View = struct {
     commit: wl.Listener(*wlroots.Surface) = undefined,
 
     link: wl.list.Link = undefined,
+
+    fn init(view: *View, server: *Server, toplevel: *wlroots.XdgToplevel) void {
+        view.* = .{
+            .server = server,
+            .xdg_toplevel = toplevel,
+        };
+        view.events.destroy.init();
+
+        view.map.setNotify(View.xdgSurfaceMap);
+        view.unmap.setNotify(View.xdgSurfaceUnmap);
+        view.destroy.setNotify(View.xdgSurfaceDestroy);
+        toplevel.base.events.map.add(&view.map);
+        toplevel.base.events.unmap.add(&view.unmap);
+        toplevel.base.events.destroy.add(&view.destroy);
+
+        view.request_move.setNotify(View.xdgToplevelRequestMove);
+        view.request_resize.setNotify(View.xdgToplevelRequestResize);
+        view.request_maximize.setNotify(View.xdgToplevelRequestMaximize);
+        toplevel.events.request_move.add(&view.request_move);
+        toplevel.events.request_resize.add(&view.request_resize);
+        toplevel.events.request_maximize.add(&view.request_maximize);
+
+        view.commit.setNotify(View.commit);
+        toplevel.base.surface.events.commit.add(&view.commit);
+    }
 
     /// transformation_matrix maps the view to layout space.
     fn transformation_matrix(view: *const View) [9]f32 {
