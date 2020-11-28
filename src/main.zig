@@ -44,6 +44,7 @@ const stdout = std.io.getStdout().writer();
 // Resources
 // - https://ppaalanen.blogspot.com/2013/11/sub-surfaces-now.html
 // - https://hikari.acmelabs.space
+// - https://developer.gnome.org/notification-spec/
 
 // TODO: decide the exact semantics of shortcuts. Cf. https://xkbcommon.org/doc/current/group__state.html
 
@@ -736,9 +737,7 @@ const Output = struct {
             const mode = modes.iterator(.reverse).next().?;
             output.setMode(mode);
             output.enable(true);
-            if (!output.commit()) {
-                return;
-            }
+            output.commit() catch return;
         }
 
         var our_output: *Output = gpa.create(Output) catch @panic("out of memory");
@@ -785,10 +784,8 @@ const Output = struct {
         // XXX don't panic
         const now = clockGetTime() catch |err| @panic(@errorName(err));
 
-        if (!output.attachRender(null)) {
-            // TODO(dh): why can this fail?
-            return;
-        }
+        // TODO(dh): why can this fail?
+        output.attachRender(null) catch return;
 
         var width: c_int = undefined;
         var height: c_int = undefined;
@@ -815,7 +812,7 @@ const Output = struct {
 
         renderer.end();
         // TODO(dh): why can this fail?
-        _ = our_output.output.commit();
+        our_output.output.commit() catch return;
     }
 
     fn present(listener: *wl.Listener(*wlroots.Output.event.Present), output: *wlroots.Output.event.Present) void {
