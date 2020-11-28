@@ -12,8 +12,8 @@ const tracy = @import("tracy.zig");
 const libinput = @cImport({
     @cInclude("linux/input.h");
 });
-var allocator_state = tracy.Allocator.init(std.heap.c_allocator, "C allocator");
-const allocator = &allocator_state.allocator;
+var gpa_state = tracy.Allocator.init(std.heap.c_allocator, "C allocator");
+const gpa = &gpa_state.allocator;
 
 const stdout = std.io.getStdout().writer();
 
@@ -213,22 +213,55 @@ const Server = struct {
         try server.seat.init(server);
     }
 
-    fn raiseView(server: *Server, view: *View, raiseParent: bool) void {
-        if (view.xdg_toplevel.parent) |parent| {
-            if (raiseParent) {
-                server.raiseView(@intToPtr(*View, parent.data), false);
+    fn raiseView(server: *Server, view: *View) !void {
+        const tracectx = tracy.trace(@src());
+        defer tracectx.end();
+
+        var arena = std.heap.ArenaAllocator.init(gpa);
+        defer arena.deinit();
+
+        try server.raiseView2(&arena, view, true, null);
+    }
+
+    fn raiseView2(server: *Server, arena: *std.heap.ArenaAllocator, view: *View, raiseParent: bool, ignoreChild: ?*View) error{OutOfMemory}!void {
+        const tracectx = tracy.trace(@src());
+        defer tracectx.end();
+
+        // recursively raise our parents
+        if (raiseParent) {
+            if (view.xdg_toplevel.parent) |parent| {
+                try server.raiseView2(arena, @intToPtr(*View, parent.data), true, view);
             }
         }
 
+        // place ourselves above our parents
         view.link.remove();
         server.views.prepend(view);
 
-        var iter = view.children.iterator(.forward);
+        // raise our children above us, maintaining their relative order
+        var toRaise = std.ArrayList(*View).init(&arena.allocator);
+        var iter = server.views.iterator(.reverse);
         while (iter.next()) |item| {
-            // FIXME(dh): consider FIXME in setParent; this might contain loops
-            // FIXME(dh): this ignores the relative ordering between children
-            server.raiseView(item, false);
+            if (item.xdg_toplevel.parent == view.xdg_toplevel.base) {
+                const child_view = @intToPtr(*View, item.xdg_toplevel.base.data);
+                if (child_view == ignoreChild) {
+                    // skip this child. it is the one that started the
+                    // chain of raiseView calls, and will raise itself
+                    // above its siblings. we don't want to pay the
+                    // cost of raising it twice.
+                } else {
+                    try toRaise.append(child_view);
+                }
+            }
         }
+        for (toRaise.items) |item| {
+            // FIXME(dh): consider FIXME in setParent; this might contain loops
+            try server.raiseView2(arena, item, false, null);
+        }
+
+        // we're done. all windows that are part of the same family
+        // have the correct relative order to each other, and the
+        // entire family is on top of all other windows.
     }
 
     /// findViewUnderCursor finds the view and surface at position (lx, ly), respecting input regions.
@@ -267,7 +300,7 @@ const Server = struct {
         switch (dev.type) {
             .keyboard => {
                 const device = dev.device.keyboard;
-                var keyboard = allocator.create(Keyboard) catch @panic("out of memory");
+                var keyboard = gpa.create(Keyboard) catch @panic("out of memory");
                 keyboard.server = server;
                 keyboard.device = dev;
 
@@ -311,7 +344,7 @@ const Server = struct {
 
             .pointer => {
                 server.seat.cursor.attachInputDevice(dev);
-                var pointer = allocator.create(Pointer) catch @panic("out of memory");
+                var pointer = gpa.create(Pointer) catch @panic("out of memory");
                 pointer.server = server;
                 pointer.device = dev;
                 server.seat.pointers.prepend(pointer);
@@ -329,7 +362,7 @@ const Server = struct {
         const server = @fieldParentPtr(Server, "new_xdg_surface", listener);
         switch (xdg_surface.role) {
             .toplevel => {
-                var view = allocator.create(View) catch @panic("out of memory");
+                var view = gpa.create(View) catch @panic("out of memory");
                 view.init(server, xdg_surface.role_data.toplevel);
                 server.views.prepend(view);
                 xdg_surface.data = @ptrToInt(view);
@@ -439,8 +472,8 @@ const Seat = struct {
         seat.seat.setCapabilities(caps);
     }
 
-    fn startInteractiveMove(seat: *Seat, view: *View, initiated_by: u32) void {
-        seat.server.raiseView(view, true);
+    fn startInteractiveMove(seat: *Seat, view: *View, initiated_by: u32) !void {
+        try seat.server.raiseView(view);
         seat.cursor_mode = .{
             .mode = .move,
             .grabbed_view = view,
@@ -507,7 +540,9 @@ const Seat = struct {
                         // OPT(dh): instead of using findViewUnderCursor, get the focussed surface from the seat.
                         if (seat.server.findViewUnderCursor(seat.cursor.x, seat.cursor.y, null, &sx, &sy)) |view| {
                             switch (event.button) {
-                                libinput.BTN_LEFT => seat.startInteractiveMove(view, event.button),
+                                libinput.BTN_LEFT => seat.startInteractiveMove(view, event.button) catch {
+                                    // TODO(dh): present error to user
+                                },
                                 libinput.BTN_MIDDLE => {
                                     seat.startInteractiveResize(view, event.button, .{
                                         // TODO(dh0: do we need to use geometry coordinates instead?
@@ -706,7 +741,7 @@ const Output = struct {
             }
         }
 
-        var our_output: *Output = allocator.create(Output) catch @panic("out of memory");
+        var our_output: *Output = gpa.create(Output) catch @panic("out of memory");
         our_output.output = output;
         our_output.server = server;
         std.os.clock_gettime(std.os.CLOCK_MONOTONIC, &our_output.last_frame) catch |err| @panic(@errorName(err));
@@ -987,7 +1022,7 @@ const View = struct {
                 var view = @fieldParentPtr(View, "destroy", listener);
                 view.link.remove();
                 view.events.destroy.emit(view);
-                allocator.destroy(view);
+                gpa.destroy(view);
             },
             else => {
                 // TODO(dh): handle other roles
@@ -1000,7 +1035,9 @@ const View = struct {
         // TODO(dh): unmaximize the window if it is maximized
         const view = @fieldParentPtr(View, "request_move", listener);
         // XXX use the serial to look up which button was used to initiate this
-        view.server.seat.startInteractiveMove(view, libinput.BTN_LEFT);
+        view.server.seat.startInteractiveMove(view, libinput.BTN_LEFT) catch {
+            // TODO(dh): inform user about failure
+        };
     }
 
     fn xdgToplevelRequestResize(listener: *wl.Listener(*wlroots.XdgToplevel.event.Resize), event: *wlroots.XdgToplevel.event.Resize) void {
@@ -1232,7 +1269,7 @@ fn dispatch(fd: c_int, mask: u32, data: *EventSource) callconv(.C) c_int {
             unreachable;
         };
         data.hnd.remove();
-        allocator.destroy(data);
+        gpa.destroy(data);
         return 0;
     }
     unreachable;
@@ -1246,12 +1283,12 @@ fn spawnTerminal(server: *Server) void {
     const tracectx = tracy.trace(@src());
     defer tracectx.end();
 
-    const pid = spawn.spawn(allocator, &[_][]const u8{"termite"}) catch |err| {
+    const pid = spawn.spawn(gpa, &[_][]const u8{"termite"}) catch |err| {
         std.debug.print("couldn't spawn terminal: {}\n", .{err});
         return;
     };
 
-    var data = allocator.create(EventSource) catch {
+    var data = gpa.create(EventSource) catch {
         // XXX handle
         return;
     };
