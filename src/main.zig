@@ -152,10 +152,10 @@ const Server = struct {
         new_view: wl.Signal(*View),
     },
 
-    new_xdg_surface: wl.Listener(*wlroots.XdgSurface) = defaultNotify(Server.newXdgSurface),
+    new_xdg_surface: wl.Listener(*wlroots.XdgSurface) = defaultNotify(Server.handleNewXdgSurface),
     // TODO(dh): move newOutputNotify into Server?
-    new_output: wl.Listener(*wlroots.Output) = defaultNotify(Output.newOutputNotify),
-    new_input: wl.Listener(*wlroots.InputDevice) = defaultNotify(Server.newInput),
+    new_output: wl.Listener(*wlroots.Output) = defaultNotify(Output.handleNewOutput),
+    new_input: wl.Listener(*wlroots.InputDevice) = defaultNotify(Server.handleNewInput),
     output_manager_apply: wl.Listener(*wlroots.OutputConfigurationV1) = defaultNotify(Server.handleOutputManagerApply),
     output_manager_test: wl.Listener(*wlroots.OutputConfigurationV1) = defaultNotify(Server.handleOutputManagerTest),
     output_manager_destroy: wl.Listener(*wlroots.OutputManagerV1) = defaultNotify(Server.handleOutputManagerDestroy),
@@ -385,7 +385,7 @@ const Server = struct {
     // is decidedly the server's responsibility, but actually managing
     // the devices is the responsibility of the seat the device is
     // assigend to.
-    fn newInput(listener: *wl.Listener(*wlroots.InputDevice), dev: *wlroots.InputDevice) void {
+    fn handleNewInput(listener: *wl.Listener(*wlroots.InputDevice), dev: *wlroots.InputDevice) void {
         const server = @fieldParentPtr(Server, "new_input", listener);
 
         switch (dev.type) {
@@ -437,7 +437,7 @@ const Server = struct {
         server.seat.updateSeatCapabilities();
     }
 
-    fn newXdgSurface(listener: *wl.Listener(*wlroots.XdgSurface), xdg_surface: *wlroots.XdgSurface) void {
+    fn handleNewXdgSurface(listener: *wl.Listener(*wlroots.XdgSurface), xdg_surface: *wlroots.XdgSurface) void {
         const server = @fieldParentPtr(Server, "new_xdg_surface", listener);
         switch (xdg_surface.role) {
             .toplevel => {
@@ -474,17 +474,17 @@ const Seat = struct {
     },
     keybinding_manager: KeybindingManager,
 
-    cursor_motion: wl.Listener(*wlroots.Pointer.event.Motion) = defaultNotify(Seat.cursorMotion),
-    cursor_motion_absolute: wl.Listener(*wlroots.Pointer.event.MotionAbsolute) = defaultNotify(Seat.cursorMotionAbsolute),
-    cursor_button: wl.Listener(*wlroots.Pointer.event.Button) = defaultNotify(Seat.cursorButton),
-    cursor_axis: wl.Listener(*wlroots.Pointer.event.Axis) = defaultNotify(Seat.cursorAxis),
-    cursor_frame: wl.Listener(*wlroots.Cursor) = defaultNotify(Seat.cursorFrame),
-    request_cursor: wl.Listener(*wlroots.Seat.event.RequestSetCursor) = defaultNotify(Seat.requestCursor),
-    request_start_drag: wl.Listener(*wlroots.Seat.event.RequestStartDrag) = defaultNotify(Seat.requestStartDrag),
-    start_drag: wl.Listener(*wlroots.Drag) = defaultNotify(Seat.startDrag),
+    cursor_motion: wl.Listener(*wlroots.Pointer.event.Motion) = defaultNotify(Seat.handleCursorMotion),
+    cursor_motion_absolute: wl.Listener(*wlroots.Pointer.event.MotionAbsolute) = defaultNotify(Seat.handleCursorMotionAbsolute),
+    cursor_button: wl.Listener(*wlroots.Pointer.event.Button) = defaultNotify(Seat.handleCursorButton),
+    cursor_axis: wl.Listener(*wlroots.Pointer.event.Axis) = defaultNotify(Seat.handleCursorAxis),
+    cursor_frame: wl.Listener(*wlroots.Cursor) = defaultNotify(Seat.handleCursorFrame),
+    request_cursor: wl.Listener(*wlroots.Seat.event.RequestSetCursor) = defaultNotify(Seat.handleRequestCursor),
+    request_start_drag: wl.Listener(*wlroots.Seat.event.RequestStartDrag) = defaultNotify(Seat.handleRequestStartDrag),
+    start_drag: wl.Listener(*wlroots.Drag) = defaultNotify(Seat.handleStartDrag),
 
-    new_view: wl.Listener(*View) = defaultNotify(Seat.newView),
-    destroy_view: wl.Listener(*View) = defaultNotify(Seat.destroyView),
+    new_view: wl.Listener(*View) = defaultNotify(Seat.handleNewView),
+    destroy_view: wl.Listener(*View) = defaultNotify(Seat.handleDestroyView),
 
     pub fn init(seat: *Seat, wlr_seat: *wlroots.Seat, server: *Server) !void {
         const cursor = try wlroots.Cursor.create();
@@ -523,12 +523,12 @@ const Seat = struct {
         seat.cursor.destroy();
     }
 
-    fn newView(listener: *wl.Listener(*View), view: *View) void {
+    fn handleNewView(listener: *wl.Listener(*View), view: *View) void {
         const seat = @fieldParentPtr(Seat, "new_view", listener);
         view.events.destroy.add(&seat.destroy_view);
     }
 
-    fn destroyView(listener: *wl.Listener(*View), view: *View) void {
+    fn handleDestroyView(listener: *wl.Listener(*View), view: *View) void {
         const seat = @fieldParentPtr(Seat, "destroy_view", listener);
         if (seat.cursor_mode.grabbed_view == view) {
             std.debug.print("cancelling grab\n", .{});
@@ -588,12 +588,12 @@ const Seat = struct {
         };
     }
 
-    fn cursorFrame(listener: *wl.Listener(*wlroots.Cursor), event: *wlroots.Cursor) void {
+    fn handleCursorFrame(listener: *wl.Listener(*wlroots.Cursor), event: *wlroots.Cursor) void {
         const seat = @fieldParentPtr(Seat, "cursor_frame", listener);
         seat.seat.pointerNotifyFrame();
     }
 
-    fn cursorButton(listener: *wl.Listener(*wlroots.Pointer.event.Button), event: *wlroots.Pointer.event.Button) void {
+    fn handleCursorButton(listener: *wl.Listener(*wlroots.Pointer.event.Button), event: *wlroots.Pointer.event.Button) void {
         const seat = @fieldParentPtr(Seat, "cursor_button", listener);
 
         // XXX handle return value
@@ -648,19 +648,19 @@ const Seat = struct {
         }
     }
 
-    fn cursorMotion(listener: *wl.Listener(*wlroots.Pointer.event.Motion), event: *wlroots.Pointer.event.Motion) void {
+    fn handleCursorMotion(listener: *wl.Listener(*wlroots.Pointer.event.Motion), event: *wlroots.Pointer.event.Motion) void {
         const seat = @fieldParentPtr(Seat, "cursor_motion", listener);
         seat.cursor.move(event.device, event.delta_x, event.delta_y);
         seat.processCursorMotion(event.time_msec);
     }
 
-    fn cursorMotionAbsolute(listener: *wl.Listener(*wlroots.Pointer.event.MotionAbsolute), event: *wlroots.Pointer.event.MotionAbsolute) void {
+    fn handleCursorMotionAbsolute(listener: *wl.Listener(*wlroots.Pointer.event.MotionAbsolute), event: *wlroots.Pointer.event.MotionAbsolute) void {
         const seat = @fieldParentPtr(Seat, "cursor_motion_absolute", listener);
         seat.cursor.warpAbsolute(event.device, event.x, event.y);
         seat.processCursorMotion(event.time_msec);
     }
 
-    fn cursorAxis(listener: *wl.Listener(*wlroots.Pointer.event.Axis), event: *wlroots.Pointer.event.Axis) void {
+    fn handleCursorAxis(listener: *wl.Listener(*wlroots.Pointer.event.Axis), event: *wlroots.Pointer.event.Axis) void {
         const seat = @fieldParentPtr(Seat, "cursor_axis", listener);
         if (seat.seat.pointer_state.focused_surface) |surface| {
             seat.pointerNotifyAxis(
@@ -774,20 +774,20 @@ const Seat = struct {
         seat.seat.pointerNotifyAxis(time_msec, orientation, value, value_discrete, source);
     }
 
-    fn requestCursor(listener: *wl.Listener(*wlroots.Seat.event.RequestSetCursor), event: *wlroots.Seat.event.RequestSetCursor) void {
+    fn handleRequestCursor(listener: *wl.Listener(*wlroots.Seat.event.RequestSetCursor), event: *wlroots.Seat.event.RequestSetCursor) void {
         const seat = @fieldParentPtr(Seat, "request_cursor", listener);
         if (seat.seat.pointer_state.focused_client == event.seat_client) {
             seat.cursor.setSurface(event.surface, event.hotspot_x, event.hotspot_y);
         }
     }
 
-    fn requestStartDrag(listener: *wl.Listener(*wlroots.Seat.event.RequestStartDrag), event: *wlroots.Seat.event.RequestStartDrag) void {
+    fn handleRequestStartDrag(listener: *wl.Listener(*wlroots.Seat.event.RequestStartDrag), event: *wlroots.Seat.event.RequestStartDrag) void {
         // TODO(dh): validate serial
         const seat = @fieldParentPtr(Seat, "request_start_drag", listener);
         seat.seat.startPointerDrag(event.drag, event.serial);
     }
 
-    fn startDrag(listener: *wl.Listener(*wlroots.Drag), drag: *wlroots.Drag) void {
+    fn handleStartDrag(listener: *wl.Listener(*wlroots.Drag), drag: *wlroots.Drag) void {
         // TODO(dh): support drag icons
     }
 };
@@ -798,9 +798,9 @@ const Output = struct {
     // XXX we're not actually using last_frame for anything, nor updating it when we render frames
     last_frame: std.os.timespec,
 
-    destroy: wl.Listener(*wlroots.Output) = defaultNotify(Output.destroyNotify),
-    frame: wl.Listener(*wlroots.Output) = defaultNotify(Output.frameNotify),
-    present: wl.Listener(*wlroots.Output.event.Present) = defaultNotify(Output.present),
+    destroy: wl.Listener(*wlroots.Output) = defaultNotify(Output.handleDestroy),
+    frame: wl.Listener(*wlroots.Output) = defaultNotify(Output.handleFrame),
+    present: wl.Listener(*wlroots.Output.event.Present) = defaultNotify(Output.handlePresent),
     mode: wl.Listener(*wlroots.Output) = defaultNotify(Output.handleMode),
     scale: wl.Listener(*wlroots.Output) = defaultNotify(Output.handleScale),
     transform: wl.Listener(*wlroots.Output) = defaultNotify(Output.handleTransform),
@@ -823,7 +823,7 @@ const Output = struct {
         wlr_output.events.transform.add(&output.transform);
     }
 
-    fn newOutputNotify(listener: *wl.Listener(*wlroots.Output), output: *wlroots.Output) void {
+    fn handleNewOutput(listener: *wl.Listener(*wlroots.Output), output: *wlroots.Output) void {
         std.debug.print("new output\n", .{});
         const server = @fieldParentPtr(Server, "new_output", listener);
 
@@ -864,7 +864,7 @@ const Output = struct {
         our_output.server.updateOutputConfiguration() catch {};
     }
 
-    fn destroyNotify(listener: *wl.Listener(*wlroots.Output), data: *wlroots.Output) void {
+    fn handleDestroy(listener: *wl.Listener(*wlroots.Output), data: *wlroots.Output) void {
         const our_output = @fieldParentPtr(Output, "destroy", listener);
 
         our_output.link.remove();
@@ -881,7 +881,7 @@ const Output = struct {
         return now;
     }
 
-    fn frameNotify(listener: *wl.Listener(*wlroots.Output), output: *wlroots.Output) void {
+    fn handleFrame(listener: *wl.Listener(*wlroots.Output), output: *wlroots.Output) void {
         const tracectx = tracy.trace(@src());
         defer tracectx.end();
 
@@ -923,7 +923,7 @@ const Output = struct {
         our_output.output.commit() catch return;
     }
 
-    fn present(listener: *wl.Listener(*wlroots.Output.event.Present), output: *wlroots.Output.event.Present) void {
+    fn handlePresent(listener: *wl.Listener(*wlroots.Output.event.Present), output: *wlroots.Output.event.Present) void {
         tracy.frame(null);
     }
 
@@ -1022,14 +1022,14 @@ const View = struct {
     children: wl.list.Head(View, "child_link") = undefined,
     child_link: wl.list.Link = .{ .prev = null, .next = null },
 
-    map: wl.Listener(*wlroots.XdgSurface) = defaultNotify(View.xdgSurfaceMap),
-    unmap: wl.Listener(*wlroots.XdgSurface) = defaultNotify(View.xdgSurfaceUnmap),
-    destroy: wl.Listener(*wlroots.XdgSurface) = defaultNotify(View.xdgSurfaceDestroy),
-    request_move: wl.Listener(*wlroots.XdgToplevel.event.Move) = defaultNotify(View.xdgToplevelRequestMove),
-    request_resize: wl.Listener(*wlroots.XdgToplevel.event.Resize) = defaultNotify(View.xdgToplevelRequestResize),
-    request_maximize: wl.Listener(*wlroots.XdgSurface) = defaultNotify(View.xdgToplevelRequestMaximize),
-    commit: wl.Listener(*wlroots.Surface) = defaultNotify(View.commit),
-    set_parent: wl.Listener(*wlroots.XdgSurface) = defaultNotify(View.xdgToplevelSetParent),
+    map: wl.Listener(*wlroots.XdgSurface) = defaultNotify(View.handleXdgSurfaceMap),
+    unmap: wl.Listener(*wlroots.XdgSurface) = defaultNotify(View.handleXdgSurfaceUnmap),
+    destroy: wl.Listener(*wlroots.XdgSurface) = defaultNotify(View.handleXdgSurfaceDestroy),
+    request_move: wl.Listener(*wlroots.XdgToplevel.event.Move) = defaultNotify(View.handleXdgToplevelRequestMove),
+    request_resize: wl.Listener(*wlroots.XdgToplevel.event.Resize) = defaultNotify(View.handleXdgToplevelRequestResize),
+    request_maximize: wl.Listener(*wlroots.XdgSurface) = defaultNotify(View.handleXdgToplevelRequestMaximize),
+    commit: wl.Listener(*wlroots.Surface) = defaultNotify(View.handleCommit),
+    set_parent: wl.Listener(*wlroots.XdgSurface) = defaultNotify(View.handleXdgToplevelSetParent),
 
     link: wl.list.Link = undefined,
 
@@ -1096,20 +1096,20 @@ const View = struct {
         return @intToFloat(f64, surface.xdg_toplevel.base.surface.current.height);
     }
 
-    fn xdgSurfaceMap(listener: *wl.Listener(*wlroots.XdgSurface), surface: *wlroots.XdgSurface) void {
+    fn handleXdgSurfaceMap(listener: *wl.Listener(*wlroots.XdgSurface), surface: *wlroots.XdgSurface) void {
         const view = @fieldParentPtr(View, "map", listener);
 
         // XXX should only the focussed client be active?
         _ = surface.role_data.toplevel.setActivated(true);
     }
 
-    fn xdgSurfaceUnmap(listener: *wl.Listener(*wlroots.XdgSurface), surface: *wlroots.XdgSurface) void {
+    fn handleXdgSurfaceUnmap(listener: *wl.Listener(*wlroots.XdgSurface), surface: *wlroots.XdgSurface) void {
         // XXX cancel interactive move, resize, …
         const view = @fieldParentPtr(View, "unmap", listener);
         // TODO(dh): if this was the surface with pointer focus, see if there's another window we can focus instead
     }
 
-    fn xdgSurfaceDestroy(listener: *wl.Listener(*wlroots.XdgSurface), surface: *wlroots.XdgSurface) void {
+    fn handleXdgSurfaceDestroy(listener: *wl.Listener(*wlroots.XdgSurface), surface: *wlroots.XdgSurface) void {
         std.debug.print("destroyed surface\n", .{});
         switch (surface.role) {
             .toplevel => {
@@ -1124,7 +1124,7 @@ const View = struct {
         }
     }
 
-    fn xdgToplevelRequestMove(listener: *wl.Listener(*wlroots.XdgToplevel.event.Move), event: *wlroots.XdgToplevel.event.Move) void {
+    fn handleXdgToplevelRequestMove(listener: *wl.Listener(*wlroots.XdgToplevel.event.Move), event: *wlroots.XdgToplevel.event.Move) void {
         // TODO(dh): check the serial against recent button presses, to prevent bad clients from invoking this at will
         // TODO(dh): unmaximize the window if it is maximized
         const view = @fieldParentPtr(View, "request_move", listener);
@@ -1134,7 +1134,7 @@ const View = struct {
         };
     }
 
-    fn xdgToplevelRequestResize(listener: *wl.Listener(*wlroots.XdgToplevel.event.Resize), event: *wlroots.XdgToplevel.event.Resize) void {
+    fn handleXdgToplevelRequestResize(listener: *wl.Listener(*wlroots.XdgToplevel.event.Resize), event: *wlroots.XdgToplevel.event.Resize) void {
         // TODO(dh): check the serial against recent button presses, to prevent bad clients from invoking this at will
         // TODO(dh): only allow this request from the focussed client
         const view = @fieldParentPtr(View, "request_resize", listener);
@@ -1142,7 +1142,7 @@ const View = struct {
         view.server.seat.startInteractiveResize(view, libinput.BTN_LEFT, event.edges);
     }
 
-    fn xdgToplevelRequestMaximize(listener: *wl.Listener(*wlroots.XdgSurface), surface: *wlroots.XdgSurface) void {
+    fn handleXdgToplevelRequestMaximize(listener: *wl.Listener(*wlroots.XdgSurface), surface: *wlroots.XdgSurface) void {
         const view = @fieldParentPtr(View, "request_maximize", listener);
 
         if (view.xdg_toplevel.client_pending.maximized) {
@@ -1180,7 +1180,7 @@ const View = struct {
         }
     }
 
-    fn xdgToplevelSetParent(listener: *wl.Listener(*wlroots.XdgSurface), surface: *wlroots.XdgSurface) void {
+    fn handleXdgToplevelSetParent(listener: *wl.Listener(*wlroots.XdgSurface), surface: *wlroots.XdgSurface) void {
         // FIXME(dh): can a misbehaving client create a cycle like a -> b -> a?
         // FIXME(dh): does wlroots call this when the current parent gets unmapped?
         const view = @fieldParentPtr(View, "set_parent", listener);
@@ -1195,7 +1195,7 @@ const View = struct {
         // TODO(dh): should we raise the window above its parent?
     }
 
-    fn commit(listener: *wl.Listener(*wlroots.Surface), data: *wlroots.Surface) void {
+    fn handleCommit(listener: *wl.Listener(*wlroots.Surface), data: *wlroots.Surface) void {
         const view = @fieldParentPtr(View, "commit", listener);
         if (view.xdg_toplevel.current.resizing) {
             const edges = view.active_grab.resize.edges;
