@@ -141,6 +141,7 @@ const Server = struct {
     views: wl.list.Head(View, "link"),
 
     cursor_mgr: *wlroots.XcursorManager,
+    output_manager: *wlroots.OutputManagerV1,
 
     outputs: wl.list.Head(Output, "link"),
 
@@ -155,6 +156,9 @@ const Server = struct {
     // TODO(dh): move newOutputNotify into Server?
     new_output: wl.Listener(*wlroots.Output) = defaultNotify(Output.newOutputNotify),
     new_input: wl.Listener(*wlroots.InputDevice) = defaultNotify(Server.newInput),
+    output_manager_apply: wl.Listener(*wlroots.OutputConfigurationV1) = defaultNotify(Server.handleOutputManagerApply),
+    output_manager_test: wl.Listener(*wlroots.OutputConfigurationV1) = defaultNotify(Server.handleOutputManagerTest),
+    output_manager_destroy: wl.Listener(*wlroots.OutputManagerV1) = defaultNotify(Server.handleOutputManagerDestroy),
 
     fn init(server: *Server, dsp: *wl.Server) !void {
         const backend = try wlroots.Backend.autocreate(dsp, null);
@@ -164,7 +168,10 @@ const Server = struct {
         // TODO(dh): what do the arguments mean?
         const cursor_mgr = try wlroots.XcursorManager.create(null, 24);
         errdefer cursor_mgr.destroy();
+        const output_manager = try wlroots.OutputManagerV1.create(dsp);
         const xdg_shell = try wlroots.XdgShell.create(dsp);
+
+        _ = try wlroots.XdgOutputManagerV1.create(dsp, output_layout);
 
         server.* = .{
             .dsp = dsp,
@@ -173,6 +180,7 @@ const Server = struct {
             .renderer = backend.getRenderer() orelse return error.GetRendererFailed,
             .output_layout = output_layout,
             .cursor_mgr = cursor_mgr,
+            .output_manager = output_manager,
             .xdg_shell = xdg_shell,
 
             .views = undefined,
@@ -202,6 +210,9 @@ const Server = struct {
         server.seat.seat.events.request_start_drag.add(&server.seat.request_start_drag);
         server.seat.seat.events.start_drag.add(&server.seat.start_drag);
         server.xdg_shell.events.new_surface.add(&server.new_xdg_surface);
+        server.output_manager.events.apply.add(&server.output_manager_apply);
+        server.output_manager.events.@"test".add(&server.output_manager_test);
+        server.output_manager.events.destroy.add(&server.output_manager_destroy);
     }
 
     fn deinit(server: *Server) void {
@@ -213,12 +224,84 @@ const Server = struct {
         server.seat.request_start_drag.link.remove();
         server.seat.start_drag.link.remove();
         server.new_xdg_surface.link.remove();
+        server.output_manager_apply.link.remove();
+        server.output_manager_test.link.remove();
+        server.output_manager_destroy.link.remove();
 
         server.backend.destroy();
         server.output_layout.destroy();
         server.cursor_mgr.destroy();
         server.seat.seat.destroy();
         server.seat.deinit();
+    }
+
+    fn handleOutputManagerApply(listener: *wl.Listener(*wlroots.OutputConfigurationV1), config: *wlroots.OutputConfigurationV1) void {
+        const server = @fieldParentPtr(Server, "output_manager_apply", listener);
+        defer config.destroy();
+        if (server.handleOutputManagerApply2(config)) {
+            config.sendSucceeded();
+        } else |_| {
+            // XXX restore the previous configuration. right now, we
+            // can be left in a seriously messed up state, e.g. one
+            // with all outputs disabled.
+            config.sendFailed();
+        }
+    }
+
+    fn handleOutputManagerApply2(server: *Server, config: *wlroots.OutputConfigurationV1) !void {
+        // First disable all disabled outputs. We don't disable and
+        // enable outputs in a single pass because we don't have
+        // atomic modesetting yet, and enabling outputs might fail if
+        // we've run out of CRTCs.
+        var iter = config.heads.iterator(.forward);
+        while (iter.next()) |head| {
+            if (!head.state.enabled) {
+                head.state.output.enable(false);
+                try head.state.output.commit();
+            }
+        }
+
+        iter = config.heads.iterator(.forward);
+        while (iter.next()) |head| {
+            if (!head.state.enabled) {
+                continue;
+            }
+            const output = head.state.output;
+            output.enable(true);
+            if (head.state.mode) |mode| {
+                output.setMode(mode);
+            } else {
+                const cmode = head.state.custom_mode;
+                output.setCustomMode(cmode.width, cmode.height, cmode.refresh);
+            }
+            output.setTransform(head.state.transform);
+            output.setScale(@floatCast(f32, head.state.scale));
+            try output.commit();
+            server.output_layout.add(output, head.state.x, head.state.y);
+        }
+    }
+
+    fn handleOutputManagerTest(listener: *wl.Listener(*wlroots.OutputConfigurationV1), config: *wlroots.OutputConfigurationV1) void {
+        // TODO(dh): add support for test
+        defer config.destroy();
+        config.sendSucceeded();
+    }
+
+    fn handleOutputManagerDestroy(listener: *wl.Listener(*wlroots.OutputManagerV1), data: *wlroots.OutputManagerV1) void {
+        std.debug.print("destroy\n", .{});
+    }
+
+    fn updateOutputConfiguration(server: *Server) !void {
+        const output_configuration = try wlroots.OutputConfigurationV1.create();
+        errdefer output_configuration.destroy();
+
+        var iter = server.outputs.iterator(.forward);
+        while (iter.next()) |item| {
+            // XXX does output_configuration.destroy destroy already added heads?
+            // TODO set output position, transform, scale
+            _ = try wlroots.OutputConfigurationV1.Head.create(output_configuration, item.output);
+        }
+        server.output_manager.setConfiguration(output_configuration);
     }
 
     fn raiseView(server: *Server, view: *View) !void {
@@ -718,6 +801,9 @@ const Output = struct {
     destroy: wl.Listener(*wlroots.Output) = defaultNotify(Output.destroyNotify),
     frame: wl.Listener(*wlroots.Output) = defaultNotify(Output.frameNotify),
     present: wl.Listener(*wlroots.Output.event.Present) = defaultNotify(Output.present),
+    mode: wl.Listener(*wlroots.Output) = defaultNotify(Output.handleMode),
+    scale: wl.Listener(*wlroots.Output) = defaultNotify(Output.handleScale),
+    transform: wl.Listener(*wlroots.Output) = defaultNotify(Output.handleTransform),
 
     link: wl.list.Link,
 
@@ -732,6 +818,9 @@ const Output = struct {
         wlr_output.events.destroy.add(&output.destroy);
         wlr_output.events.frame.add(&output.frame);
         wlr_output.events.present.add(&output.present);
+        wlr_output.events.mode.add(&output.mode);
+        wlr_output.events.scale.add(&output.scale);
+        wlr_output.events.transform.add(&output.transform);
     }
 
     fn newOutputNotify(listener: *wl.Listener(*wlroots.Output), output: *wlroots.Output) void {
@@ -752,6 +841,27 @@ const Output = struct {
         server.outputs.append(our_output);
 
         server.output_layout.addAuto(output);
+
+        // XXX handle error
+        server.updateOutputConfiguration() catch {};
+    }
+
+    fn handleMode(listener: *wl.Listener(*wlroots.Output), data: *wlroots.Output) void {
+        // XXX handle error
+        const our_output = @fieldParentPtr(Output, "mode", listener);
+        our_output.server.updateOutputConfiguration() catch {};
+    }
+
+    fn handleScale(listener: *wl.Listener(*wlroots.Output), data: *wlroots.Output) void {
+        // XXX handle error
+        const our_output = @fieldParentPtr(Output, "scale", listener);
+        our_output.server.updateOutputConfiguration() catch {};
+    }
+
+    fn handleTransform(listener: *wl.Listener(*wlroots.Output), data: *wlroots.Output) void {
+        // XXX handle error
+        const our_output = @fieldParentPtr(Output, "transform", listener);
+        our_output.server.updateOutputConfiguration() catch {};
     }
 
     fn destroyNotify(listener: *wl.Listener(*wlroots.Output), data: *wlroots.Output) void {
