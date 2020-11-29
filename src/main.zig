@@ -26,6 +26,23 @@ const stdout = std.io.getStdout().writer();
 // interactive move, because we need global mouse events, not ones
 // local to a surface.
 
+// We experimented with replacing most uses of @fieldParentPtr with
+// using 'data' fields in wlroots types. This worked well for
+// wlr.Surface and wlr.XdgSurface. XdgSurface points back to its
+// Surface, and all events in XdgSurface and Surface point back to the
+// respective surface.
+//
+// This stopped working with
+// wlr.Keyboard and wlr.InputDevice. Keyboard wouldn't point back to
+// its InputDevice, so we had to store to two different data fields.
+// Furthermore, the events in Keyboard don't carry a reference to the
+// Keyboard, so we'd have to use @fieldParentPtr for those events,
+// anyway.
+//
+// Considering these inconsistencies, and the fact that
+// @fieldParentPtr is free at runtime, while reading data fields is
+// not, we'll stick with that.
+
 // TODO(dh): should window movement relative to a stationary cursor be
 // considered cursor movement? say we have two seats with a pointer
 // each, and one seat moves a window under the other seat's cursor,
