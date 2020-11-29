@@ -206,19 +206,23 @@ const Server = struct {
             .events = undefined,
         };
 
-        const wlr_seat = try wlroots.Seat.create(server.dsp, "seat0");
-        errdefer wlr_seat.destroy();
-
         server.outputs.init();
         server.views.init();
         server.events.new_view.init();
+
+        // Note: the compositor has to be created before the seat, or
+        // weston programs will crash, trying to create a surface when
+        // it sees the seat, resulting in a segfault because it has no
+        // valid proxy for the compositor yet.
+        _ = try wlroots.Compositor.create(server.dsp, server.renderer);
+        const wlr_seat = try wlroots.Seat.create(dsp, "seat0");
+        errdefer wlr_seat.destroy();
 
         try server.seat.init(wlr_seat, server);
         errdefer server.seat.deinit();
 
         try server.renderer.initServer(dsp);
         // TODO(dh): do we need to free anything?
-        _ = try wlroots.Compositor.create(server.dsp, server.renderer);
         _ = try wlroots.DataDeviceManager.create(server.dsp);
 
         server.backend.events.new_output.add(&server.new_output);
