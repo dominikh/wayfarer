@@ -916,10 +916,10 @@ const Output = struct {
         // TODO(dh): why can this fail?
         output.attachRender(null) catch return;
 
-        var width: c_int = undefined;
-        var height: c_int = undefined;
-        our_output.output.effectiveResolution(&width, &height);
-        renderer.begin(width, height);
+        // Contrary to what tinywl suggests, we do _not_ want the
+        // "effective resolution" here. We want the actual resolution
+        // of the output.
+        renderer.begin(output.width, output.height);
 
         const color = [_]f32{ 0.3, 0.3, 0.3, 1 };
         renderer.clear(&color);
@@ -953,8 +953,8 @@ const Output = struct {
         defer tracectx.end();
 
         const view = rdata.view;
-        const output = rdata.output;
-        const renderer = output.server.renderer;
+        const output = rdata.output.output;
+        const renderer = view.server.renderer;
 
         const texture = surface.getTexture() orelse return;
 
@@ -965,23 +965,21 @@ const Output = struct {
 
         var ox: f64 = undefined;
         var oy: f64 = undefined;
-        output.server.output_layout.outputCoords(output.output, &ox, &oy);
+        view.server.output_layout.outputCoords(output, &ox, &oy);
+        ox = ox + view.position.x + @intToFloat(f64, sx);
+        oy = oy + view.position.y + @intToFloat(f64, sy);
+
+        // TODO(dh): make sure this handles fractional scaling correctly
+        const box: wlroots.Box = .{
+            .x = @floatToInt(c_int, @round(ox * output.scale)),
+            .y = @floatToInt(c_int, @round(oy * output.scale)),
+            .width = @floatToInt(c_int, @intToFloat(f32, surface.current.width) * output.scale),
+            .height = @floatToInt(c_int, @intToFloat(f32, surface.current.height) * output.scale),
+        };
+
         var m: [9]f32 = undefined;
-        wlroots.matrix.identity(&m);
-        wlroots.matrix.translate(
-            &m,
-            @floatCast(f32, view.position.x + @intToFloat(f64, sx) + ox),
-            @floatCast(f32, view.position.y + @intToFloat(f64, sy) + oy),
-        );
-
-        wlroots.matrix.scale(
-            &m,
-            @intToFloat(f32, surface.current.width),
-            @intToFloat(f32, surface.current.height),
-        );
-
-        // var m = view.transformation_matrix();
-        wlroots.matrix.multiply(&m, &output.output.transform_matrix, &m);
+        const transform = wlroots.Output.transformInvert(surface.current.transform);
+        wlroots.matrix.projectBox(&m, &box, transform, 0, &output.transform_matrix);
 
         // XXX handle failure
         renderer.renderTextureWithMatrix(texture, &m, 1) catch {};
