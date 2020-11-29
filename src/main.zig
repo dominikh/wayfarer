@@ -45,6 +45,7 @@ const stdout = std.io.getStdout().writer();
 // - https://ppaalanen.blogspot.com/2013/11/sub-surfaces-now.html
 // - https://hikari.acmelabs.space
 // - https://developer.gnome.org/notification-spec/
+// - https://github.com/emersion/wleird
 
 // TODO: decide the exact semantics of shortcuts. Cf. https://xkbcommon.org/doc/current/group__state.html
 
@@ -108,66 +109,13 @@ const stdout = std.io.getStdout().writer();
 // FIXME(dh): don't allow multiple active grabs for a single seat
 // TODO(dh): input handling: support swipe, pinch, touch and tablet
 
-// xdg_wm_base
-//   requests
-//   - [-] destroy
-//   - [-] create_positioner
-//   - [-] get_xdg_surface
-//   - [ ] pong
-//   events
-//   - [ ] ping
-//
-// xdg_positioner
-//   requests
-//   - [-] destroy
-//   - [ ] set_size
-//   - [ ] set_anchor_rect
-//   - [ ] set_anchor
-//   - [ ] set_gravity
-//   - [ ] set_constraint_adjustment
-//   - [ ] set_offset
-//   - [ ] set_reactive
-//   - [ ] set_parent_size
-//   - [ ] set_parent_configure
-//
-// xdg_surface
-//   requests
-//   - [-] destroy
-//   - [ ] get_toplevel
-//   - [ ] get_popup
-//   - [ ] set_window_geometry
-//   - [ ] ack_configure
-//   - [ ] configure
-//
-// xdg_toplevel
-//   requests
-//   - [-] destroy
-//   - [ ] set_parent
-//   - [-] set_title
-//   - [-] set_app_id
-//   - [ ] show_window_menu
-//   - [X] move
-//   - [X] resize
-//   - [X] set_max_size
-//   - [X] set_min_size
-//   - [X] set_maximized
-//   - [X] unset_maximized
-//   - [ ] set_fullscreen
-//   - [ ] unset_fullscreen
-//   - [ ] set_minimized
-//   events
-//   - [X] configure
-//   - [ ] close
-//
-// xdg_popup
-//   requests
-//   - [-] destroy
-//   - [ ] grab
-//   - [ ] reposition
-//   events
-//   - [ ] configure
-//   - [ ] popup_done
-//   - [ ] repositioned
+fn defaultNotify(comptime notify: anytype) @typeInfo(@typeInfo(@TypeOf(notify)).Fn.args[0].arg_type.?).Pointer.child {
+    const Listener = @typeInfo(@typeInfo(@TypeOf(notify)).Fn.args[0].arg_type.?).Pointer.child;
+    return .{
+        .link = .{ .next = null, .prev = null },
+        .notify = Listener.getNotifyFn(notify),
+    };
+}
 
 const Vec2 = struct {
     x: f64 = 0,
@@ -201,17 +149,76 @@ const Server = struct {
 
     events: struct {
         new_view: wl.Signal(*View),
-    } = undefined,
+    },
 
-    new_xdg_surface: wl.Listener(*wlroots.XdgSurface),
-    new_output: wl.Listener(*wlroots.Output),
-    new_input: wl.Listener(*wlroots.InputDevice),
+    new_xdg_surface: wl.Listener(*wlroots.XdgSurface) = defaultNotify(Server.newXdgSurface),
+    // TODO(dh): move newOutputNotify into Server?
+    new_output: wl.Listener(*wlroots.Output) = defaultNotify(Output.newOutputNotify),
+    new_input: wl.Listener(*wlroots.InputDevice) = defaultNotify(Server.newInput),
 
-    fn init(server: *Server) !void {
+    fn init(server: *Server, dsp: *wl.Server) !void {
+        const backend = try wlroots.Backend.autocreate(dsp, null);
+        errdefer backend.destroy();
+        const output_layout = try wlroots.OutputLayout.create();
+        errdefer output_layout.destroy();
+        // TODO(dh): what do the arguments mean?
+        const cursor_mgr = try wlroots.XcursorManager.create(null, 24);
+        errdefer cursor_mgr.destroy();
+        const xdg_shell = try wlroots.XdgShell.create(dsp);
+
+        server.* = .{
+            .dsp = dsp,
+            .evloop = dsp.getEventLoop(),
+            .backend = backend,
+            .renderer = backend.getRenderer() orelse return error.GetRendererFailed,
+            .output_layout = output_layout,
+            .cursor_mgr = cursor_mgr,
+            .xdg_shell = xdg_shell,
+
+            .views = undefined,
+            .outputs = undefined,
+            .seat = undefined,
+            .events = undefined,
+        };
+
+        const wlr_seat = try wlroots.Seat.create(server.dsp, "seat0");
+        errdefer wlr_seat.destroy();
+
         server.outputs.init();
         server.views.init();
         server.events.new_view.init();
-        try server.seat.init(server);
+
+        try server.seat.init(wlr_seat, server);
+        errdefer server.seat.deinit();
+
+        try server.renderer.initServer(dsp);
+        // TODO(dh): do we need to free anything?
+        _ = try wlroots.Compositor.create(server.dsp, server.renderer);
+        _ = try wlroots.DataDeviceManager.create(server.dsp);
+
+        server.backend.events.new_output.add(&server.new_output);
+        server.backend.events.new_input.add(&server.new_input);
+        server.seat.seat.events.request_set_cursor.add(&server.seat.request_cursor);
+        server.seat.seat.events.request_start_drag.add(&server.seat.request_start_drag);
+        server.seat.seat.events.start_drag.add(&server.seat.start_drag);
+        server.xdg_shell.events.new_surface.add(&server.new_xdg_surface);
+    }
+
+    fn deinit(server: *Server) void {
+        // FIXME(dh): deinit inputs and outputs and anything else we've allocated (or will wlroots call all our destroy handlers for us?)
+        // FIXME(dh): stop the event loop
+        server.new_output.link.remove();
+        server.new_input.link.remove();
+        server.seat.request_cursor.link.remove();
+        server.seat.request_start_drag.link.remove();
+        server.seat.start_drag.link.remove();
+        server.new_xdg_surface.link.remove();
+
+        server.backend.destroy();
+        server.output_layout.destroy();
+        server.cursor_mgr.destroy();
+        server.seat.seat.destroy();
+        server.seat.deinit();
     }
 
     fn raiseView(server: *Server, view: *View) !void {
@@ -300,10 +307,8 @@ const Server = struct {
 
         switch (dev.type) {
             .keyboard => {
-                const device = dev.device.keyboard;
                 var keyboard = gpa.create(Keyboard) catch @panic("out of memory");
-                keyboard.server = server;
-                keyboard.device = dev;
+                keyboard.init(server, dev);
 
                 // TODO(dh): a whole bunch of keymap stuff
                 const rules: xkb.RuleNames = .{
@@ -319,19 +324,9 @@ const Server = struct {
                 defer keymap.unref();
 
                 // XXX handle failure
+                const device = dev.device.keyboard;
                 _ = device.setKeymap(keymap);
                 device.setRepeatInfo(25, 600);
-
-                keyboard.modifiers.setNotify(Keyboard.handleModifiers);
-                keyboard.key.setNotify(Keyboard.handleKey);
-                keyboard.keymap.setNotify(Keyboard.handleKeymap);
-                keyboard.repeat_info.setNotify(Keyboard.handleRepeatInfo);
-                keyboard.destroy.setNotify(Keyboard.handleDestroy);
-                device.events.modifiers.add(&keyboard.modifiers);
-                device.events.key.add(&keyboard.key);
-                device.events.keymap.add(&keyboard.keymap);
-                device.events.repeat_info.add(&keyboard.repeat_info);
-                device.events.destroy.add(&keyboard.destroy);
 
                 server.seat.keyboards.prepend(keyboard);
 
@@ -396,47 +391,44 @@ const Seat = struct {
     },
     keybinding_manager: KeybindingManager,
 
-    cursor_motion: wl.Listener(*wlroots.Pointer.event.Motion),
-    cursor_motion_absolute: wl.Listener(*wlroots.Pointer.event.MotionAbsolute),
-    cursor_button: wl.Listener(*wlroots.Pointer.event.Button),
-    cursor_axis: wl.Listener(*wlroots.Pointer.event.Axis),
-    cursor_frame: wl.Listener(*wlroots.Cursor),
-    request_cursor: wl.Listener(*wlroots.Seat.event.RequestSetCursor),
-    request_start_drag: wl.Listener(*wlroots.Seat.event.RequestStartDrag),
-    start_drag: wl.Listener(*wlroots.Drag),
+    cursor_motion: wl.Listener(*wlroots.Pointer.event.Motion) = defaultNotify(Seat.cursorMotion),
+    cursor_motion_absolute: wl.Listener(*wlroots.Pointer.event.MotionAbsolute) = defaultNotify(Seat.cursorMotionAbsolute),
+    cursor_button: wl.Listener(*wlroots.Pointer.event.Button) = defaultNotify(Seat.cursorButton),
+    cursor_axis: wl.Listener(*wlroots.Pointer.event.Axis) = defaultNotify(Seat.cursorAxis),
+    cursor_frame: wl.Listener(*wlroots.Cursor) = defaultNotify(Seat.cursorFrame),
+    request_cursor: wl.Listener(*wlroots.Seat.event.RequestSetCursor) = defaultNotify(Seat.requestCursor),
+    request_start_drag: wl.Listener(*wlroots.Seat.event.RequestStartDrag) = defaultNotify(Seat.requestStartDrag),
+    start_drag: wl.Listener(*wlroots.Drag) = defaultNotify(Seat.startDrag),
 
-    new_view: wl.Listener(*View),
-    destroy_view: wl.Listener(*View),
+    new_view: wl.Listener(*View) = defaultNotify(Seat.newView),
+    destroy_view: wl.Listener(*View) = defaultNotify(Seat.destroyView),
 
-    pub fn init(seat: *Seat, server: *Server) !void {
-        seat.cursor_mode = .{
-            .mode = .normal,
-            .grabbed_view = null,
-            .initiated_by = null,
+    pub fn init(seat: *Seat, wlr_seat: *wlroots.Seat, server: *Server) !void {
+        const cursor = try wlroots.Cursor.create();
+        errdefer cursor.destroy();
+
+        seat.* = .{
+            .seat = wlr_seat,
+            .server = server,
+            .pointers = undefined,
+            .keyboards = undefined,
+            .cursor = cursor,
+            .cursor_mode = .{
+                .mode = .normal,
+                .grabbed_view = null,
+                .initiated_by = null,
+            },
+            .keybinding_manager = .{
+                .keybindings_data = undefined,
+                .server = server,
+                .keybindings = &[0]Keybinding{},
+            },
         };
-        seat.server = server;
+
         seat.keyboards.init();
         seat.pointers.init();
-        seat.keybinding_manager = .{
-            .keybindings_data = undefined,
-            .server = server,
-            .keybindings = &[0]Keybinding{},
-        };
 
-        seat.cursor = try wlroots.Cursor.create();
-
-        seat.new_view.setNotify(Seat.newView);
         seat.server.events.new_view.add(&seat.new_view);
-
-        seat.destroy_view.setNotify(Seat.destroyView);
-
-        // TODO(dh): other cursor events
-        seat.cursor_motion.setNotify(Seat.cursorMotion);
-        seat.cursor_motion_absolute.setNotify(Seat.cursorMotionAbsolute);
-        seat.cursor_button.setNotify(Seat.cursorButton);
-        seat.cursor_axis.setNotify(Seat.cursorAxis);
-        seat.cursor_frame.setNotify(Seat.cursorFrame);
-
         seat.cursor.events.motion.add(&seat.cursor_motion);
         seat.cursor.events.motion_absolute.add(&seat.cursor_motion_absolute);
         seat.cursor.events.button.add(&seat.cursor_button);
@@ -720,13 +712,27 @@ const Seat = struct {
 const Output = struct {
     output: *wlroots.Output,
     server: *Server,
+    // XXX we're not actually using last_frame for anything, nor updating it when we render frames
     last_frame: std.os.timespec,
 
-    destroy: wl.Listener(*wlroots.Output),
-    frame: wl.Listener(*wlroots.Output),
-    present: wl.Listener(*wlroots.Output.event.Present),
+    destroy: wl.Listener(*wlroots.Output) = defaultNotify(Output.destroyNotify),
+    frame: wl.Listener(*wlroots.Output) = defaultNotify(Output.frameNotify),
+    present: wl.Listener(*wlroots.Output.event.Present) = defaultNotify(Output.present),
 
     link: wl.list.Link,
+
+    fn init(output: *Output, wlr_output: *wlroots.Output, server: *Server) void {
+        output.* = .{
+            .output = wlr_output,
+            .server = server,
+            .last_frame = undefined,
+            .link = .{ .prev = null, .next = null },
+        };
+
+        wlr_output.events.destroy.add(&output.destroy);
+        wlr_output.events.frame.add(&output.frame);
+        wlr_output.events.present.add(&output.present);
+    }
 
     fn newOutputNotify(listener: *wl.Listener(*wlroots.Output), output: *wlroots.Output) void {
         std.debug.print("new output\n", .{});
@@ -741,17 +747,9 @@ const Output = struct {
         }
 
         var our_output: *Output = gpa.create(Output) catch @panic("out of memory");
-        our_output.output = output;
-        our_output.server = server;
+        our_output.init(output, server);
         std.os.clock_gettime(std.os.CLOCK_MONOTONIC, &our_output.last_frame) catch |err| @panic(@errorName(err));
-        server.outputs.prepend(our_output);
-
-        our_output.destroy.setNotify(Output.destroyNotify);
-        our_output.frame.setNotify(Output.frameNotify);
-        our_output.present.setNotify(Output.present);
-        output.events.destroy.add(&our_output.destroy);
-        output.events.frame.add(&our_output.frame);
-        output.events.present.add(&our_output.present);
+        server.outputs.append(our_output);
 
         server.output_layout.addAuto(output);
     }
@@ -914,15 +912,14 @@ const View = struct {
     children: wl.list.Head(View, "child_link") = undefined,
     child_link: wl.list.Link = .{ .prev = null, .next = null },
 
-    map: wl.Listener(*wlroots.XdgSurface) = undefined,
-    unmap: wl.Listener(*wlroots.XdgSurface) = undefined,
-    destroy: wl.Listener(*wlroots.XdgSurface) = undefined,
-
-    request_move: wl.Listener(*wlroots.XdgToplevel.event.Move) = undefined,
-    request_resize: wl.Listener(*wlroots.XdgToplevel.event.Resize) = undefined,
-    request_maximize: wl.Listener(*wlroots.XdgSurface) = undefined,
-    commit: wl.Listener(*wlroots.Surface) = undefined,
-    set_parent: wl.Listener(*wlroots.XdgSurface) = undefined,
+    map: wl.Listener(*wlroots.XdgSurface) = defaultNotify(View.xdgSurfaceMap),
+    unmap: wl.Listener(*wlroots.XdgSurface) = defaultNotify(View.xdgSurfaceUnmap),
+    destroy: wl.Listener(*wlroots.XdgSurface) = defaultNotify(View.xdgSurfaceDestroy),
+    request_move: wl.Listener(*wlroots.XdgToplevel.event.Move) = defaultNotify(View.xdgToplevelRequestMove),
+    request_resize: wl.Listener(*wlroots.XdgToplevel.event.Resize) = defaultNotify(View.xdgToplevelRequestResize),
+    request_maximize: wl.Listener(*wlroots.XdgSurface) = defaultNotify(View.xdgToplevelRequestMaximize),
+    commit: wl.Listener(*wlroots.Surface) = defaultNotify(View.commit),
+    set_parent: wl.Listener(*wlroots.XdgSurface) = defaultNotify(View.xdgToplevelSetParent),
 
     link: wl.list.Link = undefined,
 
@@ -931,27 +928,17 @@ const View = struct {
             .server = server,
             .xdg_toplevel = toplevel,
         };
-        view.children.init();
         view.events.destroy.init();
+        view.children.init();
 
-        view.map.setNotify(View.xdgSurfaceMap);
-        view.unmap.setNotify(View.xdgSurfaceUnmap);
-        view.destroy.setNotify(View.xdgSurfaceDestroy);
         toplevel.base.events.map.add(&view.map);
         toplevel.base.events.unmap.add(&view.unmap);
         toplevel.base.events.destroy.add(&view.destroy);
-
-        view.request_move.setNotify(View.xdgToplevelRequestMove);
-        view.request_resize.setNotify(View.xdgToplevelRequestResize);
-        view.request_maximize.setNotify(View.xdgToplevelRequestMaximize);
-        view.set_parent.setNotify(View.xdgToplevelSetParent);
+        toplevel.base.surface.events.commit.add(&view.commit);
         toplevel.events.request_move.add(&view.request_move);
         toplevel.events.request_resize.add(&view.request_resize);
         toplevel.events.request_maximize.add(&view.request_maximize);
         toplevel.events.set_parent.add(&view.set_parent);
-
-        view.commit.setNotify(View.commit);
-        toplevel.base.surface.events.commit.add(&view.commit);
     }
 
     /// transformation_matrix maps the view to layout space.
@@ -1125,20 +1112,34 @@ const Pointer = struct {
     server: *Server,
     device: *wlroots.InputDevice,
 
-    link: wl.list.Link,
+    link: wl.list.Link = .{ .prev = null, .next = null },
 };
 
 const Keyboard = struct {
     server: *Server,
     device: *wlroots.InputDevice,
 
-    modifiers: wl.Listener(*wlroots.Keyboard),
-    key: wl.Listener(*wlroots.Keyboard.event.Key),
-    keymap: wl.Listener(*wlroots.Keyboard),
-    repeat_info: wl.Listener(*wlroots.Keyboard),
-    destroy: wl.Listener(*wlroots.Keyboard),
+    modifiers: wl.Listener(*wlroots.Keyboard) = defaultNotify(Keyboard.handleModifiers),
+    key: wl.Listener(*wlroots.Keyboard.event.Key) = defaultNotify(Keyboard.handleKey),
+    keymap: wl.Listener(*wlroots.Keyboard) = defaultNotify(Keyboard.handleKeymap),
+    repeat_info: wl.Listener(*wlroots.Keyboard) = defaultNotify(Keyboard.handleRepeatInfo),
+    destroy: wl.Listener(*wlroots.Keyboard) = defaultNotify(Keyboard.handleDestroy),
 
-    link: wl.list.Link,
+    link: wl.list.Link = .{ .prev = null, .next = null },
+
+    fn init(keyboard: *Keyboard, server: *Server, dev: *wlroots.InputDevice) void {
+        keyboard.* = .{
+            .server = server,
+            .device = dev,
+        };
+
+        const device = dev.device.keyboard;
+        device.events.modifiers.add(&keyboard.modifiers);
+        device.events.key.add(&keyboard.key);
+        device.events.keymap.add(&keyboard.keymap);
+        device.events.repeat_info.add(&keyboard.repeat_info);
+        device.events.destroy.add(&keyboard.destroy);
+    }
 
     fn handleModifiers(listener: *wl.Listener(*wlroots.Keyboard), data: *wlroots.Keyboard) void {
         const keyboard = @fieldParentPtr(Keyboard, "modifiers", listener);
@@ -1308,9 +1309,13 @@ pub fn main() !void {
     const tracectx = tracy.trace(@src());
     defer tracectx.end();
 
-    // c.wlr_log_init(c.enum_wlr_log_importance.WLR_DEBUG, null);
+    const dsp = try wl.Server.create();
+    defer dsp.destroy();
+
     var server: Server = undefined;
-    try server.init();
+    try server.init(dsp);
+    // c.wlr_log_init(c.enum_wlr_log_importance.WLR_DEBUG, null);
+    defer server.deinit();
 
     try server.seat.keybinding_manager.addKeybinding(.{
         .modifiers = &[_][*:0]const u8{modkey},
@@ -1318,50 +1323,9 @@ pub fn main() !void {
         .cb = spawnTerminal,
     });
 
-    server.dsp = try wl.Server.create();
-    defer server.dsp.destroy();
-
-    server.evloop = server.dsp.getEventLoop();
-    server.backend = try wlroots.Backend.autocreate(server.dsp, null);
-    defer server.backend.destroy();
-
-    server.renderer = server.backend.getRenderer() orelse return error.GetRendererFailed;
-    try server.renderer.initServer(server.dsp);
-    server.new_output.setNotify(Output.newOutputNotify);
-    server.backend.events.new_output.add(&server.new_output);
-
-    // TODO(dh): do we need to free anything?
-    _ = try wlroots.Compositor.create(server.dsp, server.renderer);
-    _ = try wlroots.DataDeviceManager.create(server.dsp);
-
-    server.output_layout = try wlroots.OutputLayout.create();
-    defer server.output_layout.destroy();
-
     server.seat.cursor.attachOutputLayout(server.output_layout);
 
-    // TODO(dh): what do the arguments mean?
-    server.cursor_mgr = try wlroots.XcursorManager.create(null, 24);
-    defer server.cursor_mgr.destroy();
     try server.cursor_mgr.load(1);
-
-    server.new_input.setNotify(Server.newInput);
-    server.backend.events.new_input.add(&server.new_input);
-
-    server.seat.seat = try wlroots.Seat.create(server.dsp, "seat0");
-    defer server.seat.seat.destroy();
-
-    server.seat.request_cursor.setNotify(Seat.requestCursor);
-    server.seat.request_start_drag.setNotify(Seat.requestStartDrag);
-    server.seat.start_drag.setNotify(Seat.startDrag);
-    server.seat.seat.events.request_set_cursor.add(&server.seat.request_cursor);
-    server.seat.seat.events.request_start_drag.add(&server.seat.request_start_drag);
-    server.seat.seat.events.start_drag.add(&server.seat.start_drag);
-    // TODO(dh): all the other seat events
-
-    // note: no destructor; the shell is a static global
-    server.xdg_shell = try wlroots.XdgShell.create(server.dsp);
-    server.new_xdg_surface.setNotify(Server.newXdgSurface);
-    server.xdg_shell.events.new_surface.add(&server.new_xdg_surface);
 
     var buf: [11]u8 = undefined;
     const socket = try server.dsp.addSocketAuto(&buf);
