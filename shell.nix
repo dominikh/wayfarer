@@ -8,8 +8,13 @@ pkgs.mkShell {
     pkg-config
     udev
     wayland
+    wayland.debug
     wayland-protocols
     wlroots
+    zig
+    gdb
+    weston
+    weston.debug
     libxkbcommon
     xlibs.libxcb
   ];
