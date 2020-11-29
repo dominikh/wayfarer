@@ -303,7 +303,7 @@ const Server = struct {
     }
 
     fn handleOutputManagerTest(listener: *wl.Listener(*wlr.OutputConfigurationV1), config: *wlr.OutputConfigurationV1) void {
-        // TODO(dh): add support for test
+        // TODO(dh): add support for test, see wlr_output_test
         defer config.destroy();
         config.sendSucceeded();
     }
@@ -617,10 +617,6 @@ const Seat = struct {
     fn handleCursorButton(listener: *wl.Listener(*wlr.Pointer.event.Button), event: *wlr.Pointer.event.Button) void {
         const seat = @fieldParentPtr(Seat, "cursor_button", listener);
 
-        // XXX handle return value
-        // XXX don't notify if we've swallowed the button press
-        _ = seat.seat.pointerNotifyButton(event.time_msec, event.button, event.state);
-
         switch (seat.cursor_mode.mode) {
             .normal => blk: {
                 if (event.state != .pressed) {
@@ -637,8 +633,11 @@ const Seat = struct {
                         // OPT(dh): instead of using findViewUnderCursor, get the focussed surface from the seat.
                         if (seat.server.findViewUnderCursor(seat.cursor.x, seat.cursor.y, null, &sx, &sy)) |view| {
                             switch (event.button) {
-                                libinput.BTN_LEFT => seat.startInteractiveMove(view, event.button) catch {
-                                    // TODO(dh): present error to user
+                                libinput.BTN_LEFT => {
+                                    seat.startInteractiveMove(view, event.button) catch {
+                                        // TODO(dh): present error to user
+                                    };
+                                    return;
                                 },
                                 libinput.BTN_MIDDLE => {
                                     seat.startInteractiveResize(view, event.button, .{
@@ -648,6 +647,7 @@ const Seat = struct {
                                         .top = sy <= view.height() / 2,
                                         .bottom = sy > view.height() / 2,
                                     });
+                                    return;
                                 },
                                 else => {},
                             }
@@ -664,9 +664,12 @@ const Seat = struct {
                         .grabbed_view = null,
                         .initiated_by = null,
                     };
+                    return;
                 }
             },
         }
+
+        _ = seat.seat.pointerNotifyButton(event.time_msec, event.button, event.state);
     }
 
     fn handleCursorMotion(listener: *wl.Listener(*wlr.Pointer.event.Motion), event: *wlr.Pointer.event.Motion) void {
