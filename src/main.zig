@@ -475,8 +475,10 @@ const Server = struct {
                 xdg_surface.data = @ptrToInt(view);
                 server.events.new_view.emit(view);
             },
+            .popup => {
+                // XXX do we have to do anything?
+            },
             else => {
-                // TODO(dh): handle other roles
                 unreachable;
             },
         }
