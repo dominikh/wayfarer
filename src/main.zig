@@ -17,6 +17,10 @@ const gpa = &gpa_state.allocator;
 
 const stdout = std.io.getStdout().writer();
 
+// TODO(dh): upstream to zig-wlroots
+extern fn wlr_subsurface_from_wlr_surface(surface: *wlr.Surface) ?*wlr.Subsurface;
+extern fn wlr_surface_is_subsurface(surface: *wlr.Surface) bool;
+
 // TODO(dh): handle implicit grabs correctly.
 
 // We looked into using seat grabs to implement interactive move and
@@ -63,6 +67,8 @@ const stdout = std.io.getStdout().writer();
 // - https://hikari.acmelabs.space
 // - https://developer.gnome.org/notification-spec/
 // - https://github.com/emersion/wleird
+// - https://raphlinus.github.io/ui/graphics/2020/09/13/compositor-is-evil.html
+// - https://emersion.fr/blog/2019/xdc2019-wrap-up/#libliftoff
 
 // TODO: decide the exact semantics of shortcuts. Cf. https://xkbcommon.org/doc/current/group__state.html
 
@@ -125,6 +131,7 @@ const stdout = std.io.getStdout().writer();
 //   scaling related.
 // FIXME(dh): don't allow multiple active grabs for a single seat
 // TODO(dh): input handling: support swipe, pinch, touch and tablet
+// OPT(dh): occlusion culling
 
 fn defaultNotify(comptime notify: anytype) @typeInfo(@typeInfo(@TypeOf(notify)).Fn.args[0].arg_type.?).Pointer.child {
     const Listener = @typeInfo(@typeInfo(@TypeOf(notify)).Fn.args[0].arg_type.?).Pointer.child;
@@ -476,6 +483,28 @@ const Server = struct {
     }
 };
 
+// TODO(dh): review this function in the future; it feels more complex than should be necessary
+fn subsurfaceCoordsRelativeToRootSurface(surface: *wlr.Surface, sx: *c_int, sy: *c_int) void {
+    var x: c_int = 0;
+    var y: c_int = 0;
+    var ptr: ?*wlr.Surface = surface;
+    while (ptr != null and wlr_surface_is_subsurface(ptr.?)) {
+        if (wlr_subsurface_from_wlr_surface(ptr.?)) |subsurface| {
+            x += subsurface.current.x;
+            x += subsurface.current.y;
+            ptr = subsurface.parent;
+        } else {
+            // the subsurface for this surface has already been deleted
+            // TODO(dh): do we need to bubble this up as an error?
+            sx.* = 0;
+            sy.* = 0;
+        }
+    } else {
+        sx.* = x;
+        sy.* = y;
+    }
+}
+
 const Seat = struct {
     seat: *wlr.Seat,
     server: *Server,
@@ -483,10 +512,13 @@ const Seat = struct {
     pointers: wl.list.Head(Pointer, "link"),
     keyboards: wl.list.Head(Keyboard, "link"),
 
+    // FIXME(dh): implement keyboard grabs
+    focused_view: ?*View = null,
     cursor: *wlr.Cursor,
     cursor_mode: struct {
         mode: enum {
             normal,
+            implicit_grab,
             move,
             resize,
         },
@@ -615,13 +647,24 @@ const Seat = struct {
     }
 
     fn handleCursorButton(listener: *wl.Listener(*wlr.Pointer.event.Button), event: *wlr.Pointer.event.Button) void {
+        // XXX we can't rely on cursor motion to update the active
+        // view. we have to do it for clicks, too. and probably when
+        // windows get unmapped.
         const seat = @fieldParentPtr(Seat, "cursor_button", listener);
 
         switch (seat.cursor_mode.mode) {
             .normal => blk: {
                 if (event.state != .pressed) {
+                    // this can happen when running nested
+                    // compositors: press a button outside this
+                    // compositor, move pointer into this compositor,
+                    // release button.
                     break :blk;
                 }
+                if (seat.focused_view != null) {
+                    seat.cursor_mode.mode = .implicit_grab;
+                }
+
                 if (seat.seat.getKeyboard()) |keyboard| {
                     // OPT(dh): this calculation can be cached once per keymap
                     // FIXME(dh): don't be this unsafe. use std.math.cast, and check for xkb.mod_invalid
@@ -655,6 +698,20 @@ const Seat = struct {
                     }
                 }
             },
+
+            .implicit_grab => {
+                switch (event.state) {
+                    .pressed => {},
+                    .released => {
+                        if (seat.seat.pointer_state.button_count == 1) {
+                            // we're releasing the last pressed button
+                            seat.cursor_mode.mode = .normal;
+                        }
+                    },
+                    else => unreachable,
+                }
+            },
+
             .move, .resize => {
                 if (event.button == seat.cursor_mode.initiated_by.? and event.state == .released) {
                     const view = seat.cursor_mode.grabbed_view.?;
@@ -729,12 +786,26 @@ const Seat = struct {
                     seat.seat.pointerNotifyEnter(surface, sx, sy);
                     // TODO(dh): is it fine to call both pointerNotifyEnter and pointerNotifyMotion? Does this cause duplicate events?
                     seat.seat.pointerNotifyMotion(time_msec, sx, sy);
+                    seat.focused_view = view;
                 } else {
                     // TODO(dh): what if a button was held while the pointer left the surface?
                     seat.seat.pointerNotifyClearFocus();
+                    seat.focused_view = null;
 
                     // TODO(dh): is there a fixed set of valid pointer names?
                     seat.server.cursor_mgr.setCursorImage("left_ptr", seat.cursor);
+                }
+            },
+
+            .implicit_grab => {
+                // XXX why exactly can focussed_surface be null while focussed_view is not null?
+                if (seat.seat.pointer_state.focused_surface) |surface| {
+                    var ox: c_int = undefined;
+                    var oy: c_int = undefined;
+                    subsurfaceCoordsRelativeToRootSurface(surface, &ox, &oy);
+                    const sx = cursor_lx - seat.focused_view.?.position.x - @intToFloat(f64, ox);
+                    const sy = cursor_ly - seat.focused_view.?.position.y - @intToFloat(f64, oy);
+                    seat.seat.pointerNotifyMotion(time_msec, sx, sy);
                 }
             },
 
@@ -1006,6 +1077,8 @@ const View = struct {
     server: *Server,
     xdg_toplevel: *wlr.XdgToplevel,
     // the view's position in layout space
+
+    // XXX we should probably make this properly double-buffered
     position: Vec2 = .{},
     rotation: f32 = 0, // in radians
 
