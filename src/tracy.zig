@@ -23,6 +23,8 @@ extern fn ___tracy_emit_memory_alloc(ptr: *const c_void, size: usize, secure: c_
 extern fn ___tracy_emit_memory_free(ptr: *const c_void, secure: c_int) void;
 extern fn ___tracy_emit_memory_alloc_named(ptr: *const c_void, size: usize, secure: c_int, name: [*:0]const u8) void;
 extern fn ___tracy_emit_memory_free_named(ptr: *const c_void, secure: c_int, name: [*:0]const u8) void;
+extern fn ___tracy_emit_memory_alloc_callstack_named(ptr: *const c_void, size: usize, depth: c_int, secure: c_int, name: [*:0]const u8) void;
+extern fn ___tracy_emit_memory_free_callstack_named(ptr: *const c_void, depth: c_int, secure: c_int, name: [*:0]const u8) void;
 
 pub fn frame(name: ?[*:0]const u8) void {
     if (!enable) return;
