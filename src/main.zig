@@ -1098,17 +1098,11 @@ const View = struct {
         },
     } = .none,
 
-    state_before_maximize: struct {
-        valid: bool,
+    state_before_maximize: ?struct {
         position: Vec2,
         width: f64,
         height: f64,
-    } = .{
-        .valid = false,
-        .position = undefined,
-        .width = undefined,
-        .height = undefined,
-    },
+    } = null,
 
     events: struct {
         destroy: wl.Signal(*View),
@@ -1253,7 +1247,6 @@ const View = struct {
             }
             const geom = view.getGeometry();
             view.state_before_maximize = .{
-                .valid = true,
                 .position = view.position,
                 .width = geom.width,
                 .height = geom.height,
@@ -1271,7 +1264,7 @@ const View = struct {
 
             _ = view.xdg_toplevel.setMaximized(false);
             // TODO(dh): what happens if the client changed its geometry in the meantime? our old width and height will no longer be correct.
-            _ = view.xdg_toplevel.setSize(@floatToInt(u32, @round(view.state_before_maximize.width)), @floatToInt(u32, @round(view.state_before_maximize.height)));
+            _ = view.xdg_toplevel.setSize(@floatToInt(u32, @round(view.state_before_maximize.?.width)), @floatToInt(u32, @round(view.state_before_maximize.?.height)));
         }
     }
 
@@ -1306,9 +1299,9 @@ const View = struct {
         if (view.xdg_toplevel.current.maximized) {
             // OPT(dh): this is causing unnecessary memory writes on each commit
             view.position = .{ .x = 0, .y = 0 };
-        } else if (view.state_before_maximize.valid) {
-            view.position = view.state_before_maximize.position;
-            view.state_before_maximize.valid = false;
+        } else if (view.state_before_maximize) |state| {
+            view.position = state.position;
+            view.state_before_maximize = null;
         }
     }
 };
