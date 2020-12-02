@@ -132,6 +132,7 @@ extern fn wlr_surface_is_subsurface(surface: *wlr.Surface) bool;
 // FIXME(dh): don't allow multiple active grabs for a single seat
 // TODO(dh): input handling: support swipe, pinch, touch and tablet
 // OPT(dh): occlusion culling
+// TODO(dh): set cursor when resizing or moving a window
 
 fn defaultNotify(comptime notify: anytype) @typeInfo(@typeInfo(@TypeOf(notify)).Fn.args[0].arg_type.?).Pointer.child {
     const Listener = @typeInfo(@typeInfo(@TypeOf(notify)).Fn.args[0].arg_type.?).Pointer.child;
@@ -515,7 +516,6 @@ const Seat = struct {
     keyboards: wl.list.Head(Keyboard, "link"),
 
     // FIXME(dh): implement keyboard grabs
-    focused_view: ?*View = null,
     cursor: *wlr.Cursor,
     cursor_mode: struct {
         mode: enum {
@@ -663,9 +663,12 @@ const Seat = struct {
                     // release button.
                     break :blk;
                 }
-                if (seat.focused_view != null) {
-                    seat.cursor_mode.mode = .implicit_grab;
-                }
+                // OPT(dh): instead of using findViewUnderCursor, get the focussed surface from the seat.
+                var sx: f64 = undefined;
+                var sy: f64 = undefined;
+                const view = seat.server.findViewUnderCursor(seat.cursor.x, seat.cursor.y, null, &sx, &sy) orelse break :blk;
+                seat.cursor_mode.mode = .implicit_grab;
+                seat.cursor_mode.grabbed_view = view;
 
                 if (seat.seat.getKeyboard()) |keyboard| {
                     // OPT(dh): this calculation can be cached once per keymap
@@ -673,29 +676,25 @@ const Seat = struct {
                     const keymap = keyboard.keymap.?;
                     const wanted = @as(xkb.ModMask, 1) << @intCast(u5, keymap.modGetIndex(modkey));
                     if (wanted == keyboard.modifiers.depressed | keyboard.modifiers.latched) {
-                        var sx: f64 = undefined;
-                        var sy: f64 = undefined;
                         // OPT(dh): instead of using findViewUnderCursor, get the focussed surface from the seat.
-                        if (seat.server.findViewUnderCursor(seat.cursor.x, seat.cursor.y, null, &sx, &sy)) |view| {
-                            switch (event.button) {
-                                libinput.BTN_LEFT => {
-                                    seat.startInteractiveMove(view, event.button) catch {
-                                        // TODO(dh): present error to user
-                                    };
-                                    return;
-                                },
-                                libinput.BTN_MIDDLE => {
-                                    seat.startInteractiveResize(view, event.button, .{
-                                        // TODO(dh0: do we need to use geometry coordinates instead?
-                                        .left = sx <= view.width() / 2,
-                                        .right = sx > view.width() / 2,
-                                        .top = sy <= view.height() / 2,
-                                        .bottom = sy > view.height() / 2,
-                                    });
-                                    return;
-                                },
-                                else => {},
-                            }
+                        switch (event.button) {
+                            libinput.BTN_LEFT => {
+                                seat.startInteractiveMove(view, event.button) catch {
+                                    // TODO(dh): present error to user
+                                };
+                                return;
+                            },
+                            libinput.BTN_MIDDLE => {
+                                seat.startInteractiveResize(view, event.button, .{
+                                    // TODO(dh0: do we need to use geometry coordinates instead?
+                                    .left = sx <= view.width() / 2,
+                                    .right = sx > view.width() / 2,
+                                    .top = sy <= view.height() / 2,
+                                    .bottom = sy > view.height() / 2,
+                                });
+                                return;
+                            },
+                            else => {},
                         }
                     }
                 }
@@ -788,11 +787,9 @@ const Seat = struct {
                     seat.seat.pointerNotifyEnter(surface, sx, sy);
                     // TODO(dh): is it fine to call both pointerNotifyEnter and pointerNotifyMotion? Does this cause duplicate events?
                     seat.seat.pointerNotifyMotion(time_msec, sx, sy);
-                    seat.focused_view = view;
                 } else {
                     // TODO(dh): what if a button was held while the pointer left the surface?
                     seat.seat.pointerNotifyClearFocus();
-                    seat.focused_view = null;
 
                     // TODO(dh): is there a fixed set of valid pointer names?
                     seat.server.cursor_mgr.setCursorImage("left_ptr", seat.cursor);
@@ -805,8 +802,9 @@ const Seat = struct {
                     var ox: c_int = undefined;
                     var oy: c_int = undefined;
                     subsurfaceCoordsRelativeToRootSurface(surface, &ox, &oy);
-                    const sx = cursor_lx - seat.focused_view.?.position.x - @intToFloat(f64, ox);
-                    const sy = cursor_ly - seat.focused_view.?.position.y - @intToFloat(f64, oy);
+                    const view = seat.cursor_mode.grabbed_view.?;
+                    const sx = cursor_lx - view.position.x - @intToFloat(f64, ox);
+                    const sy = cursor_ly - view.position.y - @intToFloat(f64, oy);
                     seat.seat.pointerNotifyMotion(time_msec, sx, sy);
                 }
             },
