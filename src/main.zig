@@ -154,6 +154,10 @@ const Box = struct {
     height: f64 = 0,
 };
 
+fn first(list: anytype) *@typeInfo(@TypeOf(list)).Pointer.child.Elem {
+    return list.iterator(.forward).next().?;
+}
+
 const Server = struct {
     dsp: *wl.Server,
     evloop: *wl.EventLoop,
@@ -163,7 +167,9 @@ const Server = struct {
     output_layout: *wlr.OutputLayout,
 
     xdg_shell: *wlr.XdgShell,
+    layer_shell: *wlr.LayerShellV1,
     views: wl.list.Head(View, "link"),
+    layers: wl.list.Head(Layer, "link"),
 
     cursor_mgr: *wlr.XcursorManager,
     output_manager: *wlr.OutputManagerV1,
@@ -175,9 +181,11 @@ const Server = struct {
 
     events: struct {
         new_view: wl.Signal(*View),
+        new_layer: wl.Signal(*Layer),
     },
 
     new_xdg_surface: wl.Listener(*wlr.XdgSurface) = defaultNotify(Server.handleNewXdgSurface),
+    new_layer_surface: wl.Listener(*wlr.LayerSurfaceV1) = defaultNotify(Server.handleNewLayerSurface),
     // TODO(dh): move newOutputNotify into Server?
     new_output: wl.Listener(*wlr.Output) = defaultNotify(Output.handleNewOutput),
     new_input: wl.Listener(*wlr.InputDevice) = defaultNotify(Server.handleNewInput),
@@ -193,8 +201,6 @@ const Server = struct {
         // TODO(dh): what do the arguments mean?
         const cursor_mgr = try wlr.XcursorManager.create(null, 24);
         errdefer cursor_mgr.destroy();
-        const output_manager = try wlr.OutputManagerV1.create(dsp);
-        const xdg_shell = try wlr.XdgShell.create(dsp);
 
         _ = try wlr.XdgOutputManagerV1.create(dsp, output_layout);
 
@@ -205,10 +211,12 @@ const Server = struct {
             .renderer = backend.getRenderer() orelse return error.GetRendererFailed,
             .output_layout = output_layout,
             .cursor_mgr = cursor_mgr,
-            .output_manager = output_manager,
-            .xdg_shell = xdg_shell,
+            .output_manager = try wlr.OutputManagerV1.create(dsp),
+            .xdg_shell = try wlr.XdgShell.create(dsp),
+            .layer_shell = try wlr.LayerShellV1.create(dsp),
 
             .views = undefined,
+            .layers = undefined,
             .outputs = undefined,
             .seat = undefined,
             .events = undefined,
@@ -216,7 +224,9 @@ const Server = struct {
 
         server.outputs.init();
         server.views.init();
+        server.layers.init();
         server.events.new_view.init();
+        server.events.new_layer.init();
 
         // Note: the compositor has to be created before the seat, or
         // weston programs will crash, trying to create a surface when
@@ -242,6 +252,7 @@ const Server = struct {
         server.output_manager.events.apply.add(&server.output_manager_apply);
         server.output_manager.events.@"test".add(&server.output_manager_test);
         server.output_manager.events.destroy.add(&server.output_manager_destroy);
+        server.layer_shell.events.new_surface.add(&server.new_layer_surface);
     }
 
     fn deinit(server: *Server) void {
@@ -483,6 +494,40 @@ const Server = struct {
                 unreachable;
             },
         }
+    }
+
+    fn handleNewLayerSurface(listener: *wl.Listener(*wlr.LayerSurfaceV1), surface: *wlr.LayerSurfaceV1) void {
+        // FIXME(dh): size, anchor and so on can all change after the
+        // surface has been created. we must check, on each commit,
+        // whether any of them changed and reconfigure the surface.
+        //
+        // FIXME(dh): if the output device changes its size, then we
+        // might need to resize layers, too.
+        const server = @fieldParentPtr(Server, "new_layer_surface", listener);
+        var layer = gpa.create(Layer) catch @panic("out of memory");
+        layer.init(server, surface);
+        server.layers.prepend(layer);
+        surface.data = @ptrToInt(layer);
+        if (surface.output == null) {
+            // The client asks us to choose a suitable output
+
+            // TODO(dh): let the user configure the output selection.
+            // Possible knobs are: use the currently focused output,
+            // always use a specific output, never use certain outputs
+            // (in which case we use a fallback)
+
+            // FIXME(dh): what happens if we have no outputs?
+            const output = first(&server.outputs).output;
+            surface.output = output;
+
+            // XXX take scaling/hidpi into account for output dimensions
+            // XXX can output.width and output.height ever be negative?
+            const width = if (surface.current.desired_width == 0) @intCast(u32, output.width) else surface.current.desired_width;
+            const height = if (surface.current.desired_height == 0) @intCast(u32, output.height) else surface.current.desired_height;
+            surface.configure(width, height);
+        }
+
+        server.events.new_layer.emit(layer);
     }
 };
 
@@ -924,7 +969,7 @@ const Output = struct {
 
         const modes = &output.modes;
         if (!modes.empty()) {
-            const mode = modes.iterator(.reverse).next().?;
+            const mode = first(modes);
             output.setMode(mode);
             output.enable(true);
             output.commit() catch return;
@@ -998,18 +1043,43 @@ const Output = struct {
         const color = [_]f32{ 0.3, 0.3, 0.3, 1 };
         renderer.clear(&color);
 
-        var iter = server.views.iterator(.reverse);
-        while (iter.next()) |view| {
-            if (!view.xdg_toplevel.base.mapped) {
-                continue;
+        {
+            var iter = server.layers.iterator(.forward);
+            while (iter.next()) |layer| {
+                if (!layer.surface.mapped) {
+                    continue;
+                }
+                // TODO(dh): add a helper to iterate over just the layer we're interested in
+                // OPT(dh): cache the lookup
+                if (layer.surface.current.layer != .background) {
+                    continue;
+                }
+                var rdata = RenderData{
+                    .output = our_output,
+                    // XXX layer position
+                    .position = .{},
+                    .now = now,
+                };
+                layer.surface.forEachSurface(*RenderData, Output.renderSurface, &rdata);
             }
-            var rdata = RenderData{
-                .output = our_output,
-                .view = view,
-                .now = now,
-            };
-            view.xdg_toplevel.base.forEachSurface(*RenderData, Output.renderSurface, &rdata);
         }
+
+        {
+            var iter = server.views.iterator(.reverse);
+            while (iter.next()) |view| {
+                if (!view.xdg_toplevel.base.mapped) {
+                    continue;
+                }
+                var rdata = RenderData{
+                    .output = our_output,
+                    .position = view.position,
+                    .now = now,
+                };
+                view.xdg_toplevel.base.forEachSurface(*RenderData, Output.renderSurface, &rdata);
+            }
+        }
+
+        // FIXME(dh): draw the other layers
 
         our_output.output.renderSoftwareCursors(null);
 
@@ -1026,9 +1096,10 @@ const Output = struct {
         const tracectx = tracy.trace(@src());
         defer tracectx.end();
 
-        const view = rdata.view;
+        const pos = rdata.position;
         const output = rdata.output.output;
-        const renderer = view.server.renderer;
+        const server = rdata.output.server;
+        const renderer = server.renderer;
 
         const texture = surface.getTexture() orelse return;
 
@@ -1039,9 +1110,9 @@ const Output = struct {
 
         var ox: f64 = undefined;
         var oy: f64 = undefined;
-        view.server.output_layout.outputCoords(output, &ox, &oy);
-        ox = ox + view.position.x + @intToFloat(f64, sx);
-        oy = oy + view.position.y + @intToFloat(f64, sy);
+        server.output_layout.outputCoords(output, &ox, &oy);
+        ox = ox + pos.x + @intToFloat(f64, sx);
+        oy = oy + pos.y + @intToFloat(f64, sy);
 
         // TODO(dh): make sure this handles fractional scaling correctly
         const box: wlr.Box = .{
@@ -1065,13 +1136,43 @@ const Output = struct {
 
 const RenderData = struct {
     output: *Output,
-    view: *View,
+    position: Vec2,
     now: std.os.timespec,
 };
 
 fn deg2rad(deg: f32) f32 {
     return (deg * std.math.pi) / 180.0;
 }
+
+// TODO(dh): rename this type. it's not a layer, but an element on a layer.
+const Layer = struct {
+    server: *Server,
+    surface: *wlr.LayerSurfaceV1,
+
+    commit: wl.Listener(*wlr.Surface) = defaultNotify(Layer.handleCommit),
+    destroy: wl.Listener(*wlr.LayerSurfaceV1) = defaultNotify(Layer.handleDestroy),
+
+    link: wl.list.Link = undefined,
+
+    fn init(layer: *Layer, server: *Server, surface: *wlr.LayerSurfaceV1) void {
+        layer.* = .{
+            .server = server,
+            .surface = surface,
+        };
+        surface.surface.events.commit.add(&layer.commit);
+        surface.events.destroy.add(&layer.destroy);
+    }
+
+    fn handleDestroy(listener: *wl.Listener(*wlr.LayerSurfaceV1), surface: *wlr.LayerSurfaceV1) void {
+        const layer = @fieldParentPtr(Layer, "destroy", listener);
+        layer.link.remove();
+        gpa.destroy(layer);
+    }
+
+    fn handleCommit(listener: *wl.Listener(*wlr.Surface), surface: *wlr.Surface) void {
+        const layer = @fieldParentPtr(Layer, "commit", listener);
+    }
+};
 
 const View = struct {
     server: *Server,

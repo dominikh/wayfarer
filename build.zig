@@ -12,6 +12,7 @@ pub fn build(b: *Builder) void {
     const scanner = ScanProtocolsStep.create(b, "deps/zig-wayland");
     scanner.addSystemProtocol("stable/xdg-shell/xdg-shell.xml");
     scanner.addProtocolPath("protocols/wlr-output-management-unstable-v1.xml");
+    scanner.addProtocolPath("protocols/wlr-layer-shell-unstable-v1.xml");
 
     const wayland = scanner.getPkg();
     const xkbcommon = Pkg{
